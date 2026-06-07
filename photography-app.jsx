@@ -1,5 +1,43 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import React from "react";
+// ── SUPABASE CLIENT ────────────────────────────────────────
+const SUPABASE_URL = "https://ffitspikszuqusanuzlq.supabase.co";
+const SUPABASE_KEY = "sb_publishable_nWot1xDvDrl4qp2OsjHERw___ZXEE0C";
+
+const supabase = (() => {
+  const headers = {
+    "Content-Type": "application/json",
+    "apikey": SUPABASE_KEY,
+    "Authorization": `Bearer ${SUPABASE_KEY}`
+  };
+  const url = (table, params = "") => `${SUPABASE_URL}/rest/v1/${table}${params}`;
+
+  return {
+    async getAll(table) {
+      const res = await fetch(url(table, "?order=created_at.asc"), { headers });
+      return res.ok ? res.json() : [];
+    },
+    async insert(table, data) {
+      const res = await fetch(url(table), {
+        method: "POST", headers: { ...headers, "Prefer": "return=representation" },
+        body: JSON.stringify(data)
+      });
+      return res.ok ? res.json() : null;
+    },
+    async update(table, id, data) {
+      const res = await fetch(url(table, `?id=eq.${id}`), {
+        method: "PATCH", headers: { ...headers, "Prefer": "return=representation" },
+        body: JSON.stringify(data)
+      });
+      return res.ok ? res.json() : null;
+    },
+    async remove(table, id) {
+      await fetch(url(table, `?id=eq.${id}`), { method: "DELETE", headers });
+    }
+  };
+})();
+
+
 
 // Font injection
 const FontStyle = () => (
@@ -221,12 +259,12 @@ const Login = ({ onLogin, pins }) => {
 
 // ── EXPENSES ───────────────────────────────────────────────
 // Reusable expense list/form for both staff and manager
-const ExpenseList = ({ expenses, setExpenses, role, label, color = COLORS.danger }) => {
+const ExpenseList = ({ expenses, setExpenses, role, label, color = COLORS.danger, saveExpenseFn, updateExpenseFn, deleteExpenseFn }) => {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ description: "", category: "Equipment", amount: "", date: "", staffName: "" });
   const categories = ["Equipment", "Transport", "Food", "Marketing", "Studio", "Personal", "Other"];
 
-  const addExpense = () => {
+  const addExpense = async () => {
     if (!form.description || !form.amount) return;
     const status = role === "manager" ? "approved" : "pending";
     setExpenses(prev => [...prev, { id: Date.now(), ...form, amount: Number(form.amount), date: form.date || new Date().toISOString().split("T")[0], addedBy: role, staffName: form.staffName || "", status }]);
@@ -309,11 +347,11 @@ const ExpenseList = ({ expenses, setExpenses, role, label, color = COLORS.danger
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => setExpenses(prev => prev.map(x => x.id === e.id ? { ...x, status: "approved" } : x))}
+                  <button onClick={async () => { setExpenses(prev => prev.map(x => x.id === e.id ? { ...x, status: "approved" } : x)); if (updateExpenseFn) await updateExpenseFn(e.id, { status: "approved" }); }}
                     style={{ flex: 1, background: COLORS.success, color: "#fff", border: "none", borderRadius: 8, padding: "7px 0", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
                     ✅ Approve
                   </button>
-                  <button onClick={() => setExpenses(prev => prev.map(x => x.id === e.id ? { ...x, status: "rejected" } : x))}
+                  <button onClick={async () => { setExpenses(prev => prev.map(x => x.id === e.id ? { ...x, status: "rejected" } : x)); if (updateExpenseFn) await updateExpenseFn(e.id, { status: "rejected" }); }}
                     style={{ flex: 1, background: "transparent", border: `1px solid ${COLORS.danger}`, borderRadius: 8, padding: "7px 0", color: COLORS.danger, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
                     ❌ Reject
                   </button>
@@ -327,7 +365,7 @@ const ExpenseList = ({ expenses, setExpenses, role, label, color = COLORS.danger
   );
 };
 
-const Expenses = ({ expenses, setExpenses, managerExpenses, setManagerExpenses, staffPayments, setStaffPayments, role }) => {
+const Expenses = ({ expenses, setExpenses, managerExpenses, setManagerExpenses, staffPayments, setStaffPayments, role, saveExpense, updateExpenseDB, deleteExpenseDB, saveManagerExpense, updateManagerExpenseDB, deleteManagerExpenseDB, saveStaffPayment, deleteStaffPaymentDB }) => {
   const [activeTab, setActiveTab] = useState("studio");
 
   return (
@@ -360,7 +398,7 @@ const Expenses = ({ expenses, setExpenses, managerExpenses, setManagerExpenses, 
 
       {/* Staff Salaries / Payments — manager only */}
       {activeTab === "staff_pay" && role === "manager" && (
-        <StaffPayments staffPayments={staffPayments} setStaffPayments={setStaffPayments} />
+        <StaffPayments staffPayments={staffPayments} setStaffPayments={setStaffPayments} saveStaffPaymentFn={saveStaffPayment} deleteStaffPaymentFn={deleteStaffPaymentDB} />
       )}
 
       {/* Staff personal expenses — manager only */}
@@ -418,7 +456,7 @@ const Expenses = ({ expenses, setExpenses, managerExpenses, setManagerExpenses, 
           const others = prev.filter(e => e.addedBy !== "manager");
           const updated = typeof updater === "function" ? updater(mine) : updater;
           return [...others, ...updated];
-        })} role={role} label="Private Expenses" color="#9b6ec8" />
+        })} role={role} label="Private Expenses" color="#9b6ec8" saveExpenseFn={saveManagerExpense} updateExpenseFn={updateManagerExpenseDB} deleteExpenseFn={deleteManagerExpenseDB} />
       )}
 
       {/* Staff personal expense recorder — only visible to staff, saved privately for manager to see */}
@@ -636,20 +674,26 @@ const Dashboard = ({ bookings, clients, expenses, rentals, frames, studioSession
 };
 
 // ── CLIENTS ────────────────────────────────────────────────
-const Clients = ({ clients, setClients, role, deleteRequests, setDeleteRequests }) => {
+const Clients = ({ clients, setClients, role, deleteRequests, setDeleteRequests, saveClient, deleteClientDB, updateClientDB }) => {
   const canEdit = role === "manager" || role === "alain" || role === "max";
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [form, setForm] = useState({ name: "", phone: "" });
 
-  const addClient = () => {
+  const addClient = async () => {
     if (!form.name) return;
     if (editId) {
       setClients(prev => prev.map(c => c.id === editId ? { ...c, ...form } : c));
+      if (updateClientDB) await updateClientDB(editId, { name: form.name, phone: form.phone });
       setEditId(null);
     } else {
-      setClients(prev => [...prev, { id: Date.now(), ...form, sessions: 0, status: "active" }]);
+      const newClient = { id: Date.now(), ...form, sessions: 0, status: "active" };
+      setClients(prev => [...prev, newClient]);
+      if (saveClient) {
+        const saved = await saveClient(newClient);
+        if (saved && saved[0]) setClients(prev => prev.map(c => c.id === newClient.id ? { ...c, id: saved[0].id } : c));
+      }
     }
     setForm({ name: "", phone: "" });
     setShowForm(false);
@@ -661,6 +705,11 @@ const Clients = ({ clients, setClients, role, deleteRequests, setDeleteRequests 
     } else {
       setDeleteRequests(prev => [...prev, { id: Date.now(), type: "client", itemId: id, itemName: name, requestedBy: role, status: "pending" }]);
     }
+  };
+  const confirmDelete = async (id) => {
+    setClients(prev => prev.filter(c => c.id !== id));
+    setConfirmDeleteId(null);
+    if (deleteClientDB) await deleteClientDB(id);
   };
 
   return (
@@ -708,7 +757,7 @@ const Clients = ({ clients, setClients, role, deleteRequests, setDeleteRequests 
                   {role === "manager" && (
                     confirmDeleteId === c.id ? (
                       <div style={{ display: "flex", gap: 4 }}>
-                        <button onClick={() => { setClients(prev => prev.filter(x => x.id !== c.id)); setConfirmDeleteId(null); }}
+                        <button onClick={() => confirmDelete(c.id)}
                           style={{ background: COLORS.danger, color: "#fff", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>Confirm</button>
                         <button onClick={() => setConfirmDeleteId(null)}
                           style={{ background: COLORS.border, color: COLORS.muted, border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>Cancel</button>
@@ -735,7 +784,7 @@ const Clients = ({ clients, setClients, role, deleteRequests, setDeleteRequests 
 };
 
 // ── BOOKINGS ───────────────────────────────────────────────
-const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDeleteRequests }) => {
+const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDeleteRequests, saveBooking, updateBookingDB, deleteBookingDB }) => {
   const canEdit = role === "manager" || role === "alain" || role === "max";
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -749,7 +798,7 @@ const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDel
 
   const types = ["Wedding", "Portrait", "Family", "Birthday", "Family Function", "Events", "Corporate"];
 
-  const addBooking = () => {
+  const addBooking = async () => {
     if (!form.client || !form.date) return;
     const isStudio = form.type === "Studio Session";
     const amount = isStudio
@@ -759,15 +808,21 @@ const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDel
     const status = paid >= amount && amount > 0 ? "confirmed" : "pending";
     if (editId) {
       setBookings(prev => prev.map(b => b.id === editId ? { ...b, ...form, amount, paid, status } : b));
+      if (updateBookingDB) await updateBookingDB(editId, { ...form, amount, paid, status });
       setEditId(null);
     } else {
-      setBookings(prev => [...prev, { id: Date.now(), ...form, amount, paid, status, delivered: false, editedDelivered: false, editedDeliveryDate: form.editedDeliveryDate || "", numPictures: form.numPictures || "", unitPicPrice: form.unitPicPrice || "", refund: 0, refundNote: "", closed: false }]);
+      const newBooking = { id: Date.now(), ...form, amount, paid, status, delivered: false, editedDelivered: false, editedDeliveryDate: form.editedDeliveryDate || "", numPictures: form.numPictures || "", unitPicPrice: form.unitPicPrice || "", refund: 0, refundNote: "", closed: false };
+      setBookings(prev => [...prev, newBooking]);
+      if (saveBooking) {
+        const saved = await saveBooking(newBooking);
+        if (saved && saved[0]) setBookings(prev => prev.map(b => b.id === newBooking.id ? { ...b, id: saved[0].id } : b));
+      }
     }
     setForm({ client: "", type: "Wedding", date: "", time: "", location: "", amount: "", paid: "", editedDeliveryDate: "", numPictures: "", unitPicPrice: "" });
     setShowForm(false);
   };
 
-  const applyRefund = (id) => {
+  const applyRefund = async (id) => {
     const amount = Number(refundAmount) || 0;
     if (!amount) return;
     setBookings(prev => prev.map(b => {
@@ -781,8 +836,9 @@ const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDel
     setRefundId(null);
   };
 
-  const markDelivered = (id) => {
+  const markDelivered = async (id) => {
     setBookings(prev => prev.map(b => b.id === id ? { ...b, delivered: true } : b));
+    if (updateBookingDB) await updateBookingDB(id, { delivered: true });
   };
 
   const markEditedDelivered = (id) => {
@@ -987,7 +1043,7 @@ const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDel
 
 
 // ── FRAMES ─────────────────────────────────────────────────
-const Frames = ({ frames, setFrames, clients, role, hideTitle = false }) => {
+const Frames = ({ frames, setFrames, clients, role, hideTitle = false, saveFrame, updateFrameDB, deleteFrameDB }) => {
   const canEdit = role === "manager" || role === "alain" || role === "max";
   const [showForm, setShowForm] = useState(false);
   const [addPaymentId, setAddPaymentId] = useState(null);
@@ -1000,7 +1056,7 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false }) => {
 
   const sizes = ["A6", "A5", "A4", "A3", "A2", "A1", "20x30cm", "30x40cm", "40x60cm", "60x90cm", "Custom"];
 
-  const addFrame = () => {
+  const addFrame = async () => {
     if (!form.client || !form.unitPrice) return;
     const quantity = Number(form.quantity) || 1;
     const unitPrice = Number(form.unitPrice) || 0;
@@ -1009,9 +1065,15 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false }) => {
     const paid = Math.min(Number(form.paid) || 0, total);
     if (editId) {
       setFrames(prev => prev.map(f => f.id === editId ? { ...f, ...form, quantity, unitPrice, costPrice, total } : f));
+      if (updateFrameDB) await updateFrameDB(editId, { quantity, unit_price: unitPrice, cost_price: costPrice });
       setEditId(null);
     } else {
-      setFrames(prev => [...prev, { id: Date.now(), ...form, quantity, unitPrice, costPrice, total, paid, date: new Date().toISOString().split("T")[0], completed: false }]);
+      const newFrame = { id: Date.now(), ...form, quantity, unitPrice, costPrice, total, paid, date: new Date().toISOString().split("T")[0], completed: false };
+      setFrames(prev => [...prev, newFrame]);
+      if (saveFrame) {
+        const saved = await saveFrame(newFrame);
+        if (saved && saved[0]) setFrames(prev => prev.map(f => f.id === newFrame.id ? { ...f, id: saved[0].id } : f));
+      }
     }
     setForm({ client: "", size: "A4", description: "", quantity: "1", costPrice: "", unitPrice: "", paid: "" });
     setShowForm(false);
@@ -1251,7 +1313,7 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
   const [refundNote, setRefundNote] = useState("");
   const [form, setForm] = useState({ client: "", items: "", from: "", to: "", days: "", pricePerDay: "" });
 
-  const addRental = () => {
+  const addRental = async () => {
     if (!form.client || !form.items) return;
     const days = Number(form.days) || 1;
     const pricePerDay = Number(form.pricePerDay) || 0;
@@ -1266,19 +1328,23 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
     setShowForm(false);
   };
 
-  const applyPayment = (id) => {
+  const applyPayment = async (id) => {
     const extra = Number(extraPayment) || 0;
     if (!extra) return;
+    let newPaid = 0;
     setRentals(prev => prev.map(r => {
       if (r.id !== id) return r;
-      return { ...r, paid: Math.min(r.paid + extra, r.amount) };
+      newPaid = Math.min(r.paid + extra, r.amount);
+      return { ...r, paid: newPaid };
     }));
+    if (updateRentalDB) await updateRentalDB(id, { paid: newPaid });
     setExtraPayment("");
     setAddPaymentId(null);
   };
 
-  const markReturned = (id) => {
+  const markReturned = async (id) => {
     setRentals(prev => prev.map(r => r.id === id ? { ...r, returned: true } : r));
+    if (updateRentalDB) await updateRentalDB(id, { returned: true });
   };
 
   const active = rentals.filter(r => !r.returned);
@@ -1526,7 +1592,7 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
 };
 
 // ── COMPLETED ──────────────────────────────────────────────
-const CompletedCard = ({ b, setBookings, role }) => {
+const CompletedCard = ({ b, setBookings, role, updateBookingDB }) => {
   const [showRefund, setShowRefund] = useState(false);
   const [refAmt, setRefAmt] = useState("");
   const [refNote, setRefNote] = useState("");
@@ -1607,7 +1673,7 @@ const CompletedCard = ({ b, setBookings, role }) => {
                 style={{ flex: 1, background: "transparent", border: `1px solid ${COLORS.danger}`, borderRadius: 8, padding: 8, color: COLORS.danger, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 💸 Issue Refund
               </button>
-              <button onClick={() => setBookings(prev => prev.map(x => x.id === b.id ? { ...x, closed: true, refund: 0 } : x))}
+              <button onClick={async () => { setBookings(prev => prev.map(x => x.id === b.id ? { ...x, closed: true, refund: 0 } : x)); if (updateBookingDB) await updateBookingDB(b.id, { closed: true }); }}
                 style={{ flex: 1, background: COLORS.success, border: "none", borderRadius: 8, padding: 8, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 🔒 No Refund
               </button>
@@ -1624,7 +1690,7 @@ const CompletedCard = ({ b, setBookings, role }) => {
   );
 };
 
-const Completed = ({ bookings, setBookings, studioSessions = [], setStudioSessions, frames = [], setFrames, rentals = [], role }) => {
+const Completed = ({ bookings, setBookings, studioSessions = [], setStudioSessions, frames = [], setFrames, rentals = [], role, updateBookingDB }) => {
   const completed = bookings.filter(b => b.amount > 0 && (b.delivered || b.paid >= b.amount || (b.refund||0) > 0 || b.closed));
   const completedSessions = studioSessions.filter(s => s.completed);
   const completedFrames = frames.filter(f => f.completed);
@@ -1635,7 +1701,7 @@ const Completed = ({ bookings, setBookings, studioSessions = [], setStudioSessio
       <h3 style={{ color: COLORS.text, margin: "0 0 6px", fontSize: 18, fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif", letterSpacing: 2 }}>Completed</h3>
       <p style={{ color: COLORS.muted, fontSize: 13, marginBottom: 16 }}>Fully paid bookings</p>
 
-      {completed.map(b => <CompletedCard key={b.id} b={b} setBookings={setBookings} role={role} />)}
+      {completed.map(b => <CompletedCard key={b.id} b={b} setBookings={setBookings} role={role} updateBookingDB={updateBookingDB} />)}
 
       {/* Completed Studio Sessions */}
       {completedSessions.length > 0 && (
@@ -1713,15 +1779,20 @@ const Completed = ({ bookings, setBookings, studioSessions = [], setStudioSessio
 
 
 // ── STAFF PAYMENTS (Manager only) ──────────────────────────
-const StaffPayments = ({ staffPayments, setStaffPayments }) => {
+const StaffPayments = ({ staffPayments, setStaffPayments, saveStaffPaymentFn, deleteStaffPaymentFn }) => {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", role: "", amount: "", date: "", note: "" });
 
   const roles = ["Photographer", "Editor", "Assistant", "Driver", "Other"];
 
-  const addPayment = () => {
+  const addPayment = async () => {
     if (!form.name || !form.amount) return;
-    setStaffPayments(prev => [...prev, { id: Date.now(), ...form, amount: Number(form.amount) }]);
+    const newPayment = { id: Date.now(), ...form, amount: Number(form.amount) };
+    setStaffPayments(prev => [...prev, newPayment]);
+    if (saveStaffPaymentFn) {
+      const saved = await saveStaffPaymentFn(newPayment);
+      if (saved && saved[0]) setStaffPayments(prev => prev.map(p => p.id === newPayment.id ? { ...p, id: saved[0].id } : p));
+    }
     setForm({ name: "", role: "", amount: "", date: "", note: "" });
     setShowForm(false);
   };
@@ -1812,7 +1883,7 @@ const StaffPayments = ({ staffPayments, setStaffPayments }) => {
 
 
 // ── STUDIO SESSIONS ────────────────────────────────────────
-const StudioSessions = ({ sessions, setSessions, clients, role }) => {
+const StudioSessions = ({ sessions, setSessions, clients, role, saveStudioSession, updateStudioDB, deleteStudioDB }) => {
   const canEdit = role === "manager" || role === "alain" || role === "max";
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -1821,7 +1892,7 @@ const StudioSessions = ({ sessions, setSessions, clients, role }) => {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [form, setForm] = useState({ client: "", sessionType: "Indoor Session", numPictures: "", unitPrice: "", paid: "", deliveryDate: "" });
 
-  const addSession = () => {
+  const addSession = async () => {
     if (!form.client || !form.numPictures || !form.unitPrice) return;
     const numPictures = Number(form.numPictures) || 0;
     const unitPrice = Number(form.unitPrice) || 0;
@@ -1829,9 +1900,15 @@ const StudioSessions = ({ sessions, setSessions, clients, role }) => {
     const paid = Math.min(Number(form.paid) || 0, amount);
     if (editId) {
       setSessions(prev => prev.map(s => s.id === editId ? { ...s, ...form, numPictures, unitPrice, amount } : s));
+      if (updateStudioDB) await updateStudioDB(editId, { num_pictures: numPictures, unit_price: unitPrice, amount });
       setEditId(null);
     } else {
-      setSessions(prev => [...prev, { id: Date.now(), ...form, numPictures, unitPrice, amount, paid, date: new Date().toISOString().split("T")[0], completed: false }]);
+      const newSession = { id: Date.now(), ...form, numPictures, unitPrice, amount, paid, date: new Date().toISOString().split("T")[0], completed: false };
+      setSessions(prev => [...prev, newSession]);
+      if (saveStudioSession) {
+        const saved = await saveStudioSession(newSession);
+        if (saved && saved[0]) setSessions(prev => prev.map(s => s.id === newSession.id ? { ...s, id: saved[0].id } : s));
+      }
     }
     setForm({ client: "", sessionType: "Indoor Session", numPictures: "", unitPrice: "", paid: "", deliveryDate: "" });
     setShowForm(false);
@@ -2030,7 +2107,7 @@ const StudioSessions = ({ sessions, setSessions, clients, role }) => {
 };
 
 // ── SHOP ───────────────────────────────────────────────────
-const Shop = ({ rentals, setRentals, frames, setFrames, studioSessions, setStudioSessions, clients, role }) => {
+const Shop = ({ rentals, setRentals, frames, setFrames, studioSessions, setStudioSessions, clients, role, saveRental, updateRentalDB, deleteRentalDB, saveFrame, updateFrameDB, deleteFrameDB, saveStudioSession, updateStudioDB, deleteStudioDB }) => {
   const [activeShopTab, setActiveShopTab] = useState("rentals");
 
   return (
@@ -2048,8 +2125,8 @@ const Shop = ({ rentals, setRentals, frames, setFrames, studioSessions, setStudi
         ))}
       </div>
       {activeShopTab === "rentals" && <Rentals rentals={rentals} setRentals={setRentals} clients={clients} role={role} hideTitle />}
-      {activeShopTab === "frames" && <Frames frames={frames} setFrames={setFrames} clients={clients} role={role} hideTitle />}
-      {activeShopTab === "studio" && <StudioSessions sessions={studioSessions} setSessions={setStudioSessions} clients={clients} role={role} />}
+      {activeShopTab === "frames" && <Frames frames={frames} setFrames={setFrames} clients={clients} role={role} hideTitle saveFrame={saveFrame} updateFrameDB={updateFrameDB} deleteFrameDB={deleteFrameDB} />}
+      {activeShopTab === "studio" && <StudioSessions sessions={studioSessions} setSessions={setStudioSessions} clients={clients} role={role} saveStudioSession={saveStudioSession} updateStudioDB={updateStudioDB} deleteStudioDB={deleteStudioDB} />}
     </div>
   );
 };
@@ -2184,6 +2261,7 @@ const Settings = ({ pins, setPins, deleteRequests, setDeleteRequests, setClients
 // ── MAIN APP ───────────────────────────────────────────────
 export default function App() {
   const [pins, setPins] = useState(DEFAULT_PINS);
+  const [loading, setLoading] = useState(true);
   const [deleteRequests, setDeleteRequests] = useState([]);
   const [role, setRole] = useState(null);
   const [tab, setTab] = useState("bookings");
@@ -2197,6 +2275,112 @@ export default function App() {
   const [staffPayments, setStaffPayments] = useState(initialStaffPayments);
   const [managerExpenses, setManagerExpenses] = useState(initialManagerExpenses);
 
+
+  // Sync clients to Supabase
+  const saveClient = async (client) => {
+    await supabase.insert("clients", { name: client.name, phone: client.phone, sessions: client.sessions || 0, status: client.status || "active" });
+  };
+  const deleteClientDB = async (id) => { await supabase.remove("clients", id); };
+  const updateClientDB = async (id, data) => { await supabase.update("clients", id, data); };
+
+  const saveBooking = async (b) => {
+    await supabase.insert("bookings", {
+      client: b.client, type: b.type, date: b.date, time: b.time,
+      location: b.location, amount: b.amount, paid: b.paid, status: b.status,
+      delivered: b.delivered, refund: b.refund, refund_note: b.refundNote,
+      closed: b.closed, num_pictures: Number(b.numPictures) || 0,
+      unit_pic_price: Number(b.unitPicPrice) || 0,
+      edited_delivery_date: b.editedDeliveryDate || ""
+    });
+  };
+  const updateBookingDB = async (id, data) => {
+    const mapped = { ...data };
+    if ("refundNote" in data) { mapped.refund_note = data.refundNote; delete mapped.refundNote; }
+    if ("numPictures" in data) { mapped.num_pictures = data.numPictures; delete mapped.numPictures; }
+    if ("unitPicPrice" in data) { mapped.unit_pic_price = data.unitPicPrice; delete mapped.unitPicPrice; }
+    if ("editedDeliveryDate" in data) { mapped.edited_delivery_date = data.editedDeliveryDate; delete mapped.editedDeliveryDate; }
+    await supabase.update("bookings", id, mapped);
+  };
+  const deleteBookingDB = async (id) => { await supabase.remove("bookings", id); };
+
+  const saveExpense = async (e) => {
+    await supabase.insert("expenses", {
+      description: e.description, category: e.category, amount: e.amount,
+      date: e.date, added_by: e.addedBy, staff_name: e.staffName || "", status: e.status || "pending"
+    });
+  };
+  const updateExpenseDB = async (id, data) => { await supabase.update("expenses", id, data); };
+  const deleteExpenseDB = async (id) => { await supabase.remove("expenses", id); };
+
+  const saveRental = async (r) => {
+    await supabase.insert("rentals", {
+      client: r.client, items: r.items, from_date: r.from, to_date: r.to,
+      days: r.days, price_per_day: r.pricePerDay, amount: r.amount, paid: r.paid, returned: r.returned
+    });
+  };
+  const updateRentalDB = async (id, data) => {
+    const mapped = { ...data };
+    if ("pricePerDay" in data) { mapped.price_per_day = data.pricePerDay; delete mapped.pricePerDay; }
+    if ("from" in data) { mapped.from_date = data.from; delete mapped.from; }
+    if ("to" in data) { mapped.to_date = data.to; delete mapped.to; }
+    await supabase.update("rentals", id, mapped);
+  };
+  const deleteRentalDB = async (id) => { await supabase.remove("rentals", id); };
+
+  const saveFrame = async (f) => {
+    await supabase.insert("frames", {
+      client: f.client, size: f.size, description: f.description,
+      quantity: f.quantity, unit_price: f.unitPrice, cost_price: f.costPrice || 0,
+      paid: f.paid, completed: f.completed || false, date: f.date
+    });
+  };
+  const updateFrameDB = async (id, data) => {
+    const mapped = { ...data };
+    if ("unitPrice" in data) { mapped.unit_price = data.unitPrice; delete mapped.unitPrice; }
+    if ("costPrice" in data) { mapped.cost_price = data.costPrice; delete mapped.costPrice; }
+    await supabase.update("frames", id, mapped);
+  };
+  const deleteFrameDB = async (id) => { await supabase.remove("frames", id); };
+
+  const saveStudioSession = async (s) => {
+    await supabase.insert("studio_sessions", {
+      client: s.client, session_type: s.sessionType, num_pictures: s.numPictures,
+      unit_price: s.unitPrice, amount: s.amount, paid: s.paid,
+      delivery_date: s.deliveryDate || "", completed: s.completed || false,
+      date: s.date
+    });
+  };
+  const updateStudioDB = async (id, data) => {
+    const mapped = { ...data };
+    if ("sessionType" in data) { mapped.session_type = data.sessionType; delete mapped.sessionType; }
+    if ("numPictures" in data) { mapped.num_pictures = data.numPictures; delete mapped.numPictures; }
+    if ("unitPrice" in data) { mapped.unit_price = data.unitPrice; delete mapped.unitPrice; }
+    if ("deliveryDate" in data) { mapped.delivery_date = data.deliveryDate; delete mapped.deliveryDate; }
+    await supabase.update("studio_sessions", id, mapped);
+  };
+  const deleteStudioDB = async (id) => { await supabase.remove("studio_sessions", id); };
+
+  const saveStaffPayment = async (p) => {
+    await supabase.insert("staff_payments", { name: p.name, role: p.role, amount: p.amount, date: p.date, note: p.note || "" });
+  };
+  const deleteStaffPaymentDB = async (id) => { await supabase.remove("staff_payments", id); };
+
+  const saveManagerExpense = async (e) => {
+    await supabase.insert("manager_expenses", {
+      description: e.description, category: e.category, amount: e.amount,
+      date: e.date, added_by: e.addedBy || "manager", status: e.status || "approved"
+    });
+  };
+  const updateManagerExpenseDB = async (id, data) => { await supabase.update("manager_expenses", id, data); };
+  const deleteManagerExpenseDB = async (id) => { await supabase.remove("manager_expenses", id); };
+
+  if (loading) return (
+    <div style={{ background: "#0a0a0a", minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ color: "#c8a96e", fontSize: 36, fontFamily: "'Century Gothic', sans-serif", fontWeight: 700, letterSpacing: 6 }}>IMANI</div>
+      <div style={{ color: "#fff", fontSize: 24, fontFamily: "'Century Gothic', sans-serif", fontWeight: 700, letterSpacing: 8 }}>STUDIO</div>
+      <div style={{ color: "#666", fontSize: 13, marginTop: 20 }}>Loading your data...</div>
+    </div>
+  );
   if (!role) return <Login pins={pins} onLogin={(r) => { setRole(r); setTab(r === "manager" ? "home" : "bookings"); setTabHistory([]); }} />;
 
   const roleInfo = ROLE_LABELS[role];
@@ -2238,12 +2422,12 @@ export default function App() {
       {/* Content */}
       <div style={{ padding: "20px 16px 90px" }}>
         {tab === "home" && role === "manager" && <Dashboard bookings={bookings} clients={clients} expenses={expenses} rentals={rentals} frames={frames} studioSessions={studioSessions} staffPayments={staffPayments} managerExpenses={managerExpenses} role={role} />}
-        {tab === "clients" && <Clients clients={clients} setClients={setClients} role={role} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} />}
-        {tab === "bookings" && <Bookings bookings={bookings} setBookings={setBookings} clients={clients} role={role} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} />}
-        {tab === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} managerExpenses={managerExpenses} setManagerExpenses={setManagerExpenses} staffPayments={staffPayments} setStaffPayments={setStaffPayments} role={role} />}
-        {tab === "shop" && <Shop rentals={rentals} setRentals={setRentals} frames={frames} setFrames={setFrames} studioSessions={studioSessions} setStudioSessions={setStudioSessions} clients={clients} role={role} />}
+        {tab === "clients" && <Clients clients={clients} setClients={setClients} role={role} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} saveClient={saveClient} deleteClientDB={deleteClientDB} updateClientDB={updateClientDB} />}
+        {tab === "bookings" && <Bookings bookings={bookings} setBookings={setBookings} clients={clients} role={role} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} saveBooking={saveBooking} updateBookingDB={updateBookingDB} deleteBookingDB={deleteBookingDB} />}
+        {tab === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} managerExpenses={managerExpenses} setManagerExpenses={setManagerExpenses} staffPayments={staffPayments} setStaffPayments={setStaffPayments} role={role} saveExpense={saveExpense} updateExpenseDB={updateExpenseDB} deleteExpenseDB={deleteExpenseDB} saveManagerExpense={saveManagerExpense} updateManagerExpenseDB={updateManagerExpenseDB} deleteManagerExpenseDB={deleteManagerExpenseDB} saveStaffPayment={saveStaffPayment} deleteStaffPaymentDB={deleteStaffPaymentDB} />}
+        {tab === "shop" && <Shop rentals={rentals} setRentals={setRentals} frames={frames} setFrames={setFrames} studioSessions={studioSessions} setStudioSessions={setStudioSessions} clients={clients} role={role} saveRental={saveRental} updateRentalDB={updateRentalDB} deleteRentalDB={deleteRentalDB} saveFrame={saveFrame} updateFrameDB={updateFrameDB} deleteFrameDB={deleteFrameDB} saveStudioSession={saveStudioSession} updateStudioDB={updateStudioDB} deleteStudioDB={deleteStudioDB} />}
         {tab === "settings" && <Settings pins={pins} setPins={setPins} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} setClients={setClients} setBookings={setBookings} clients={clients} bookings={bookings} />}
-        {tab === "completed" && <Completed bookings={bookings} setBookings={setBookings} studioSessions={studioSessions} setStudioSessions={setStudioSessions} frames={frames} setFrames={setFrames} rentals={rentals} role={role} />}
+        {tab === "completed" && <Completed bookings={bookings} setBookings={setBookings} studioSessions={studioSessions} setStudioSessions={setStudioSessions} frames={frames} setFrames={setFrames} rentals={rentals} role={role} updateBookingDB={updateBookingDB} />}
       </div>
 
       {/* Bottom Nav */}
