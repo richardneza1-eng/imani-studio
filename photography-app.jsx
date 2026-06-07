@@ -1097,10 +1097,11 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
 
   const addRental = () => {
     if (!form.client || !form.items) return;
-    const amount = Number(form.amount) || 0;
-    const paid = Number(form.paid) || 0;
-    setRentals(prev => [...prev, { id: Date.now(), ...form, amount, paid, returned: false }]);
-    setForm({ client: "", items: "", from: "", to: "", amount: "", paid: "" });
+    const days = Number(form.days) || 1;
+    const pricePerDay = Number(form.pricePerDay) || 0;
+    const amount = days * pricePerDay;
+    setRentals(prev => [...prev, { id: Date.now(), ...form, days, pricePerDay, amount, paid: 0, returned: false }]);
+    setForm({ client: "", items: "", from: "", to: "", days: "", pricePerDay: "" });
     setShowForm(false);
   };
 
