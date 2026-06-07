@@ -368,7 +368,7 @@ const Expenses = ({ expenses, setExpenses, managerExpenses, setManagerExpenses, 
         <div>
           {["alain", "max"].map(staffRole => {
             const staffExp = managerExpenses.filter(e => e.addedBy === staffRole);
-            const total = staffExp.reduce((s,e) => s + e.amount, 0);
+            const total = staffExp.filter(e => e.status === "approved").reduce((s,e) => s + e.amount, 0);
             return (
               <div key={staffRole}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "12px 0 8px" }}>
@@ -376,18 +376,35 @@ const Expenses = ({ expenses, setExpenses, managerExpenses, setManagerExpenses, 
                   <span style={{ color: "#6e9bc8", fontSize: 12, fontWeight: 700 }}>{formatRWF(total)}</span>
                 </div>
                 {staffExp.length === 0 && <Card><div style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", padding: 8 }}>No expenses recorded</div></Card>}
-                {staffExp.map(e => (
-                  <Card key={e.id} style={{ borderLeft: `3px solid #6e9bc8` }}>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}>
-                      <div>
-                        <div style={{ color: COLORS.text, fontWeight: 600 }}>{e.description}</div>
-                        <div style={{ color: COLORS.accent, fontSize: 12, marginTop: 2 }}>🏷️ {e.category}</div>
-                        <div style={{ color: COLORS.muted, fontSize: 12, marginTop: 2 }}>📅 {e.date}</div>
+                {staffExp.map(e => {
+                  const isPending = e.status === "pending";
+                  const isRejected = e.status === "rejected";
+                  return (
+                    <Card key={e.id} style={{ borderLeft: `3px solid ${isPending ? COLORS.accent : isRejected ? COLORS.danger : "#6e9bc8"}`, opacity: isRejected ? 0.6 : 1 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: isPending ? 10 : 0 }}>
+                        <div>
+                          <div style={{ color: COLORS.text, fontWeight: 600 }}>{e.description}</div>
+                          <div style={{ color: COLORS.accent, fontSize: 12, marginTop: 2 }}>🏷️ {e.category}</div>
+                          <div style={{ color: COLORS.muted, fontSize: 12, marginTop: 2 }}>📅 {e.date}</div>
+                          <div style={{ marginTop: 4 }}>
+                            {isPending && <span style={{ background: "#3a2a10", color: COLORS.accent, borderRadius: 20, padding: "2px 8px", fontSize: 10, fontWeight: 600 }}>⏳ Pending</span>}
+                            {e.status === "approved" && <span style={{ background: "#1a3a2a", color: COLORS.success, borderRadius: 20, padding: "2px 8px", fontSize: 10, fontWeight: 600 }}>✅ Approved</span>}
+                            {isRejected && <span style={{ background: "#3a1a1a", color: COLORS.danger, borderRadius: 20, padding: "2px 8px", fontSize: 10, fontWeight: 600 }}>❌ Rejected</span>}
+                          </div>
+                        </div>
+                        <div style={{ color: "#6e9bc8", fontWeight: 700, fontSize: 15 }}>{formatRWF(e.amount)}</div>
                       </div>
-                      <div style={{ color: "#6e9bc8", fontWeight: 700, fontSize: 15 }}>{formatRWF(e.amount)}</div>
-                    </div>
-                  </Card>
-                ))}
+                      {isPending && (
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button onClick={() => setManagerExpenses(prev => prev.map(x => x.id === e.id ? { ...x, status: "approved" } : x))}
+                            style={{ flex: 1, background: COLORS.success, color: "#fff", border: "none", borderRadius: 8, padding: "7px 0", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>✅ Approve</button>
+                          <button onClick={() => setManagerExpenses(prev => prev.map(x => x.id === e.id ? { ...x, status: "rejected" } : x))}
+                            style={{ flex: 1, background: "transparent", border: `1px solid ${COLORS.danger}`, borderRadius: 8, padding: "7px 0", color: COLORS.danger, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>❌ Reject</button>
+                        </div>
+                      )}
+                    </Card>
+                  );
+                })}
               </div>
             );
           })}
@@ -413,7 +430,7 @@ const Expenses = ({ expenses, setExpenses, managerExpenses, setManagerExpenses, 
             setExpenses={(updater) => {
               const newItems = typeof updater === "function" ? updater([]) : updater;
               const newExp = newItems[newItems.length - 1];
-              if (newExp) setManagerExpenses(prev => [...prev, { ...newExp, addedBy: role }]);
+              if (newExp) setManagerExpenses(prev => [...prev, { ...newExp, addedBy: role, status: "pending" }]);
             }}
             role={role}
             label=""
@@ -432,16 +449,20 @@ const Expenses = ({ expenses, setExpenses, managerExpenses, setManagerExpenses, 
 const Dashboard = ({ bookings, clients, expenses, rentals, frames, studioSessions, staffPayments, managerExpenses, role }) => {
   const totalRevenue = bookings.reduce((s, b) => s + b.paid, 0);
   const totalRefunds = bookings.reduce((s, b) => s + (b.refund || 0), 0);
-  const outstanding = bookings.reduce((s, b) => s + (b.amount - b.paid), 0);
+  const outstanding = bookings.reduce((s, b) => s + (b.amount - b.paid), 0)
+    + rentals.reduce((s, r) => s + Math.max(0, r.amount - r.paid), 0)
+    + frames.reduce((s, f) => s + Math.max(0, (f.quantity * f.unitPrice) - f.paid), 0)
+    + studioSessions.reduce((s, x) => s + Math.max(0, x.amount - x.paid), 0);
   const upcoming = bookings.filter(b => b.status === "confirmed").length;
-  const totalExpenses = expenses.filter(e => !e.status || e.status === 'approved').reduce((s, e) => s + e.amount, 0);
+  const personalExpensesTotal = (managerExpenses || []).filter(e => e.addedBy === "manager" || e.status === "approved").reduce((s, e) => s + e.amount, 0);
+  const totalExpenses = expenses.filter(e => !e.status || e.status === 'approved').reduce((s, e) => s + e.amount, 0) + personalExpensesTotal;
   const rentalIncome = rentals.reduce((s, r) => s + r.paid, 0);
   const frameIncome = frames.reduce((s, f) => s + f.paid, 0);
   const frameNetGain = frames.reduce((s, f) => s + ((f.unitPrice - (f.costPrice||0)) * f.quantity), 0);
   const totalStaffPaid = staffPayments.reduce((s, p) => s + p.amount, 0);
   const totalManagerExp = staffPayments.length >= 0 ? (typeof managerExpenses !== "undefined" ? managerExpenses.reduce((s,e)=>s+e.amount,0) : 0) : 0;
   const studioIncome = studioSessions.reduce((s, x) => s + x.paid, 0);
-  const netProfit = totalRevenue + rentalIncome + frameIncome + studioIncome - totalExpenses - totalStaffPaid;
+  const netProfit = totalRevenue + rentalIncome + frameNetGain + studioIncome - totalExpenses - totalStaffPaid;
   const nextBooking = bookings.filter(b => b.status === "confirmed")[0];
 
   return (
@@ -455,9 +476,10 @@ const Dashboard = ({ bookings, clients, expenses, rentals, frames, studioSession
       {/* Stats — paginated 2x2, arrow buttons to switch pages */}
       {(() => {
         const stats = [
-          { label: "Revenue Collected", value: formatRWF(totalRevenue), icon: "💰", color: COLORS.success },
+          { label: "Total Revenue", value: formatRWF(totalRevenue + rentalIncome + frameIncome + studioIncome), icon: "🏆", color: COLORS.success },
+          { label: "Bookings Collected", value: formatRWF(totalRevenue), icon: "💰", color: COLORS.success },
           { label: "Outstanding", value: formatRWF(outstanding), icon: "⏳", color: COLORS.danger },
-          { label: "Total Expenses", value: formatRWF(expenses.filter(e=>e.status==="approved").reduce((s,e)=>s+e.amount,0)), icon: "💸", color: COLORS.danger },
+          { label: "Total Expenses", value: formatRWF(totalExpenses), icon: "💸", color: COLORS.danger },
           { label: "Rental Income", value: formatRWF(rentals.reduce((s,r)=>s+r.paid,0)), icon: "🎥", color: COLORS.success },
           { label: "Frame Sales", value: formatRWF(frames.reduce((s,f)=>s+f.paid,0)), icon: "🖼️", color: COLORS.success },
           { label: "Frame Net Gain", value: formatRWF(frameNetGain), icon: "📈", color: COLORS.success },
@@ -587,7 +609,7 @@ const Dashboard = ({ bookings, clients, expenses, rentals, frames, studioSession
         <Card><div style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", padding: 10 }}>All bookings are settled 🎉</div></Card>
       )}
       {(role === "alain" || role === "max"
-        ? bookings.filter(b => b.paid < b.amount || (b.paid >= b.amount && !b.delivered))
+        ? bookings.filter(b => !b.delivered || b.paid < b.amount)
         : bookings
       ).map(b => {
         const rest = b.amount - b.paid;
@@ -683,16 +705,23 @@ const Clients = ({ clients, setClients, role, deleteRequests, setDeleteRequests 
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                   <button onClick={() => { setForm({ name: c.name, phone: c.phone }); setEditId(c.id); setShowForm(true); }}
                     style={{ background: "none", border: "none", color: COLORS.accent, fontSize: 11, cursor: "pointer", padding: 0 }}>✏️ Edit</button>
-                  {confirmDeleteId === c.id ? (
-                    <div style={{ display: "flex", gap: 4 }}>
-                      <button onClick={() => { setClients(prev => prev.filter(x => x.id !== c.id)); setConfirmDeleteId(null); }}
-                        style={{ background: COLORS.danger, color: "#fff", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>Confirm</button>
-                      <button onClick={() => setConfirmDeleteId(null)}
-                        style={{ background: COLORS.border, color: COLORS.muted, border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>Cancel</button>
-                    </div>
-                  ) : (
-                    <button onClick={() => deleteClient(c.id, c.name)} style={{ background: "none", border: "none", color: role === "manager" ? COLORS.danger : COLORS.muted, fontSize: 11, cursor: "pointer", padding: 0 }}>
-                      {role === "manager" ? "🗑️ Delete" : "🗑️ Request"}
+                  {role === "manager" && (
+                    confirmDeleteId === c.id ? (
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button onClick={() => { setClients(prev => prev.filter(x => x.id !== c.id)); setConfirmDeleteId(null); }}
+                          style={{ background: COLORS.danger, color: "#fff", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>Confirm</button>
+                        <button onClick={() => setConfirmDeleteId(null)}
+                          style={{ background: COLORS.border, color: COLORS.muted, border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>Cancel</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => deleteClient(c.id, c.name)} style={{ background: "none", border: "none", color: COLORS.danger, fontSize: 11, cursor: "pointer", padding: 0 }}>
+                        🗑️ Delete
+                      </button>
+                    )
+                  )}
+                  {(role === "alain" || role === "max") && (
+                    <button onClick={() => deleteClient(c.id, c.name)} style={{ background: "none", border: "none", color: COLORS.muted, fontSize: 11, cursor: "pointer", padding: 0 }}>
+                      🗑️ Request Delete
                     </button>
                   )}
                 </div>
@@ -1021,19 +1050,21 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false }) => {
         )}
       </div>
 
-      {/* Summary */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-        <Card style={{ padding: 14 }}>
-          <div style={{ fontSize: 18, marginBottom: 4 }}>🖼️</div>
-          <div style={{ color: COLORS.success, fontSize: 18, fontWeight: 700 }}>{formatRWF(totalRevenue)}</div>
-          <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>Collected</div>
-        </Card>
-        <Card style={{ padding: 14 }}>
-          <div style={{ fontSize: 18, marginBottom: 4 }}>⏳</div>
-          <div style={{ color: COLORS.danger, fontSize: 18, fontWeight: 700 }}>{formatRWF(totalOutstanding)}</div>
-          <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>Outstanding</div>
-        </Card>
-      </div>
+      {/* Summary — Manager only */}
+      {role === "manager" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+          <Card style={{ padding: 14 }}>
+            <div style={{ fontSize: 18, marginBottom: 4 }}>🖼️</div>
+            <div style={{ color: COLORS.success, fontSize: 18, fontWeight: 700 }}>{formatRWF(totalRevenue)}</div>
+            <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>Collected</div>
+          </Card>
+          <Card style={{ padding: 14 }}>
+            <div style={{ fontSize: 18, marginBottom: 4 }}>⏳</div>
+            <div style={{ color: COLORS.danger, fontSize: 18, fontWeight: 700 }}>{formatRWF(totalOutstanding)}</div>
+            <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>Outstanding</div>
+          </Card>
+        </div>
+      )}
 
       {canEdit && showForm && (
         <Card style={{ borderColor: COLORS.accent }}>
@@ -1251,8 +1282,8 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
   };
 
   const active = rentals.filter(r => !r.returned);
-  const pendingPayment = rentals.filter(r => r.returned && r.paid < r.amount);
-  const completed = rentals.filter(r => r.returned && r.paid >= r.amount);
+  const pendingPayment = rentals.filter(r => r.returned && !(r.amount > 0 && r.paid >= r.amount));
+  const completed = rentals.filter(r => r.returned && r.amount > 0 && r.paid >= r.amount);
   const totalIncome = rentals.reduce((s, r) => s + r.paid, 0);
   const totalOutstanding = rentals.reduce((s, r) => s + (r.amount - r.paid), 0);
 
@@ -1271,19 +1302,21 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
         )}
       </div>
 
-      {/* Summary */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-        <Card style={{ padding: 14 }}>
-          <div style={{ fontSize: 18, marginBottom: 4 }}>💰</div>
-          <div style={{ color: COLORS.success, fontSize: 18, fontWeight: 700 }}>{formatRWF(totalIncome)}</div>
-          <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>Collected</div>
-        </Card>
-        <Card style={{ padding: 14 }}>
-          <div style={{ fontSize: 18, marginBottom: 4 }}>⏳</div>
-          <div style={{ color: COLORS.danger, fontSize: 18, fontWeight: 700 }}>{formatRWF(totalOutstanding)}</div>
-          <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>Outstanding</div>
-        </Card>
-      </div>
+      {/* Summary — Manager only */}
+      {role === "manager" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+          <Card style={{ padding: 14 }}>
+            <div style={{ fontSize: 18, marginBottom: 4 }}>💰</div>
+            <div style={{ color: COLORS.success, fontSize: 18, fontWeight: 700 }}>{formatRWF(totalIncome)}</div>
+            <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>Collected</div>
+          </Card>
+          <Card style={{ padding: 14 }}>
+            <div style={{ fontSize: 18, marginBottom: 4 }}>⏳</div>
+            <div style={{ color: COLORS.danger, fontSize: 18, fontWeight: 700 }}>{formatRWF(totalOutstanding)}</div>
+            <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>Outstanding</div>
+          </Card>
+        </div>
+      )}
 
       {canEdit && showForm && (
         <Card style={{ borderColor: COLORS.accent }}>
@@ -1591,10 +1624,11 @@ const CompletedCard = ({ b, setBookings, role }) => {
   );
 };
 
-const Completed = ({ bookings, setBookings, studioSessions = [], setStudioSessions, frames = [], setFrames, role }) => {
-  const completed = bookings.filter(b => b.amount > 0 && (b.paid >= b.amount || (b.refund||0) > 0));
+const Completed = ({ bookings, setBookings, studioSessions = [], setStudioSessions, frames = [], setFrames, rentals = [], role }) => {
+  const completed = bookings.filter(b => b.amount > 0 && (b.delivered || b.paid >= b.amount || (b.refund||0) > 0 || b.closed));
   const completedSessions = studioSessions.filter(s => s.completed);
   const completedFrames = frames.filter(f => f.completed);
+  const completedRentals = rentals.filter(r => r.returned && r.amount > 0 && r.paid >= r.amount);
 
   return (
     <div>
@@ -1646,7 +1680,30 @@ const Completed = ({ bookings, setBookings, studioSessions = [], setStudioSessio
         </>
       )}
 
-      {completed.length === 0 && completedSessions.length === 0 && completedFrames.length === 0 && (
+      {/* Completed Rentals */}
+      {completedRentals.length > 0 && (
+        <>
+          <h3 style={{ color: COLORS.muted, fontSize: 11, letterSpacing: 1.5, margin: "20px 0 10px", textTransform: "uppercase" }}>🎥 Rentals</h3>
+          {completedRentals.map(r => (
+            <Card key={r.id} style={{ borderLeft: `3px solid ${COLORS.success}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ color: COLORS.text, fontWeight: 600, fontSize: 15 }}>{r.client}</div>
+                  <div style={{ color: COLORS.accent, fontSize: 12, marginTop: 2 }}>📷 {r.items}</div>
+                  <div style={{ color: COLORS.muted, fontSize: 12 }}>📅 {r.from} → {r.to}</div>
+                  <div style={{ color: COLORS.muted, fontSize: 12 }}>⏱️ {r.days || 1} day{(r.days||1)>1?"s":""} × {formatRWF(r.pricePerDay||0)}</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ color: COLORS.success, fontWeight: 700, fontSize: 15 }}>{formatRWF(r.amount)}</div>
+                  <span style={{ background: "#0d2b1a", color: COLORS.success, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700 }}>✅ Done</span>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </>
+      )}
+
+      {completed.length === 0 && completedSessions.length === 0 && completedFrames.length === 0 && completedRentals.length === 0 && (
         <Card><div style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", padding: 10 }}>No completed items yet</div></Card>
       )}
     </div>
@@ -1804,18 +1861,20 @@ const StudioSessions = ({ sessions, setSessions, clients, role }) => {
         )}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-        <Card style={{ padding: 14 }}>
-          <div style={{ fontSize: 18, marginBottom: 4 }}>💰</div>
-          <div style={{ color: COLORS.success, fontSize: 18, fontWeight: 700 }}>{formatRWF(totalRevenue)}</div>
-          <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>Collected</div>
-        </Card>
-        <Card style={{ padding: 14 }}>
-          <div style={{ fontSize: 18, marginBottom: 4 }}>⏳</div>
-          <div style={{ color: COLORS.danger, fontSize: 18, fontWeight: 700 }}>{formatRWF(totalOutstanding)}</div>
-          <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>Outstanding</div>
-        </Card>
-      </div>
+      {role === "manager" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+          <Card style={{ padding: 14 }}>
+            <div style={{ fontSize: 18, marginBottom: 4 }}>💰</div>
+            <div style={{ color: COLORS.success, fontSize: 18, fontWeight: 700 }}>{formatRWF(totalRevenue)}</div>
+            <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>Collected</div>
+          </Card>
+          <Card style={{ padding: 14 }}>
+            <div style={{ fontSize: 18, marginBottom: 4 }}>⏳</div>
+            <div style={{ color: COLORS.danger, fontSize: 18, fontWeight: 700 }}>{formatRWF(totalOutstanding)}</div>
+            <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>Outstanding</div>
+          </Card>
+        </div>
+      )}
 
       {canEdit && showForm && (
         <Card style={{ borderColor: COLORS.accent }}>
@@ -2184,7 +2243,7 @@ export default function App() {
         {tab === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} managerExpenses={managerExpenses} setManagerExpenses={setManagerExpenses} staffPayments={staffPayments} setStaffPayments={setStaffPayments} role={role} />}
         {tab === "shop" && <Shop rentals={rentals} setRentals={setRentals} frames={frames} setFrames={setFrames} studioSessions={studioSessions} setStudioSessions={setStudioSessions} clients={clients} role={role} />}
         {tab === "settings" && <Settings pins={pins} setPins={setPins} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} setClients={setClients} setBookings={setBookings} clients={clients} bookings={bookings} />}
-        {tab === "completed" && <Completed bookings={bookings} setBookings={setBookings} studioSessions={studioSessions} setStudioSessions={setStudioSessions} frames={frames} setFrames={setFrames} role={role} />}
+        {tab === "completed" && <Completed bookings={bookings} setBookings={setBookings} studioSessions={studioSessions} setStudioSessions={setStudioSessions} frames={frames} setFrames={setFrames} rentals={rentals} role={role} />}
       </div>
 
       {/* Bottom Nav */}
