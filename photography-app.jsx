@@ -83,6 +83,13 @@ const InputField = ({ placeholder, value, onChange, type = "text" }) => (
 );
 
 
+
+const BackButton = ({ onClick }) => (
+  <button onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", color: COLORS.muted, fontSize: 13, cursor: "pointer", padding: "0 0 12px 0", fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif" }}>
+    <span style={{ fontSize: 18 }}>‹</span> Back
+  </button>
+);
+
 const ClientSelect = ({ value, onChange, clients }) => {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -613,6 +620,7 @@ const Clients = ({ clients, setClients, role, deleteRequests, setDeleteRequests 
 
       {canEdit && showForm && (
         <Card style={{ borderColor: COLORS.accent }}>
+          <BackButton onClick={() => setShowForm(false)} />
           <InputField placeholder="Full Name" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
           <InputField placeholder="Phone" value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} />
           <button onClick={addClient} style={{ width: "100%", background: COLORS.accent, color: "#000", border: "none", borderRadius: 8, padding: 12, fontWeight: 700, cursor: "pointer" }}>
@@ -731,6 +739,7 @@ const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDel
 
       {canEdit && showForm && (
         <Card style={{ borderColor: COLORS.accent }}>
+          <BackButton onClick={() => setShowForm(false)} />
           <ClientSelect value={form.client} onChange={val => setForm(p => ({ ...p, client: val }))} clients={clients} />
           <select value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value }))}
             style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "10px 12px", color: COLORS.text, fontSize: 14, marginBottom: 8 }}>
@@ -956,6 +965,7 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false }) => {
 
       {canEdit && showForm && (
         <Card style={{ borderColor: COLORS.accent }}>
+          <BackButton onClick={() => setShowForm(false)} />
           <ClientSelect value={form.client} onChange={val => setForm(p => ({ ...p, client: val }))} clients={clients} />
           <select value={form.size} onChange={e => setForm(p => ({ ...p, size: e.target.value }))}
             style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "10px 12px", color: COLORS.text, fontSize: 14, marginBottom: 8 }}>
@@ -1145,6 +1155,7 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
 
       {canEdit && showForm && (
         <Card style={{ borderColor: COLORS.accent }}>
+          <BackButton onClick={() => setShowForm(false)} />
           <ClientSelect value={form.client} onChange={val => setForm(p => ({ ...p, client: val }))} clients={clients} />
           <InputField placeholder="Items (e.g. Camera + 50mm lens)" value={form.items} onChange={e => setForm(p => ({ ...p, items: e.target.value }))} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
@@ -1228,8 +1239,22 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
 
             {canEdit && (
               <div style={{ marginTop: 4 }}>
+                {/* Fix fee if saved as 0 */}
+                {r.amount === 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ color: COLORS.muted, fontSize: 11, letterSpacing: 1, marginBottom: 6 }}>SET TOTAL RENTAL FEE (RWF)</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input type="number" placeholder="Enter total fee" id={`fee-${r.id}`}
+                        style={{ flex: 1, background: COLORS.bg, border: `1px solid ${COLORS.accent}`, borderRadius: 8, padding: "8px 10px", color: COLORS.text, fontSize: 13 }} />
+                      <button onClick={() => {
+                        const fee = Number(document.getElementById(`fee-${r.id}`).value) || 0;
+                        if (fee > 0) setRentals(prev => prev.map(x => x.id === r.id ? { ...x, amount: fee } : x));
+                      }} style={{ background: COLORS.accent, color: "#000", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, cursor: "pointer" }}>Set</button>
+                    </div>
+                  </div>
+                )}
                 {/* Add payment button — always visible if balance remains */}
-                {rest > 0 && (
+                {(rest > 0 || r.amount === 0) && (
                   addPaymentId === r.id ? (
                     <div style={{ marginBottom: 8 }}>
                       <div style={{ color: COLORS.muted, fontSize: 11, letterSpacing: 1, marginBottom: 6 }}>
@@ -1452,6 +1477,7 @@ const StaffPayments = ({ staffPayments, setStaffPayments }) => {
 
       {showForm && (
         <Card style={{ borderColor: COLORS.accent }}>
+          <BackButton onClick={() => setShowForm(false)} />
           <InputField placeholder="Staff Name" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
           <select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}
             style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "10px 12px", color: form.role ? COLORS.text : COLORS.muted, fontSize: 14, marginBottom: 8 }}>
@@ -1656,6 +1682,7 @@ export default function App() {
   const [deleteRequests, setDeleteRequests] = useState([]);
   const [role, setRole] = useState(null);
   const [tab, setTab] = useState("bookings");
+  const [tabHistory, setTabHistory] = useState([]);
   const [clients, setClients] = useState(initialClients);
   const [bookings, setBookings] = useState(initialBookings);
   const [expenses, setExpenses] = useState(initialExpenses);
@@ -1664,7 +1691,7 @@ export default function App() {
   const [staffPayments, setStaffPayments] = useState(initialStaffPayments);
   const [managerExpenses, setManagerExpenses] = useState(initialManagerExpenses);
 
-  if (!role) return <Login pins={pins} onLogin={(r) => { setRole(r); setTab(r === "manager" ? "home" : "bookings"); }} />;
+  if (!role) return <Login pins={pins} onLogin={(r) => { setRole(r); setTab(r === "manager" ? "home" : "bookings"); setTabHistory([]); }} />;
 
   const roleInfo = ROLE_LABELS[role];
 
@@ -1684,9 +1711,15 @@ export default function App() {
     <><FontStyle /><div style={{ background: "#000000", minHeight: "100vh", width: "100%", display: "flex", justifyContent: "center" }}><div style={{ background: COLORS.bg, minHeight: "100vh", width: "100%", maxWidth: 430, margin: "0 auto", fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif" }}>
       {/* Header */}
       <div style={{ padding: "16px 20px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ color: COLORS.accent, fontSize: 32, fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif", fontWeight: 700, letterSpacing: 4, lineHeight: 1 }}>IMANI</span>
-          <span style={{ color: COLORS.text, fontSize: 22, fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif", fontWeight: 700, letterSpacing: 4, lineHeight: 1 }}>STUDIO</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {tabHistory.length > 0 && (
+            <button onClick={() => { const prev = tabHistory[tabHistory.length - 1]; setTab(prev); setTabHistory(h => h.slice(0, -1)); }}
+              style={{ background: "none", border: "none", color: COLORS.muted, fontSize: 22, cursor: "pointer", padding: 0, lineHeight: 1 }}>‹</button>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <span style={{ color: COLORS.accent, fontSize: 32, fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif", fontWeight: 700, letterSpacing: 4, lineHeight: 1 }}>IMANI</span>
+            <span style={{ color: COLORS.text, fontSize: 22, fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif", fontWeight: 700, letterSpacing: 4, lineHeight: 1 }}>STUDIO</span>
+          </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ color: roleInfo.color, fontSize: 12, fontWeight: 600 }}>{roleInfo.icon} {roleInfo.label}</span>
@@ -1709,7 +1742,7 @@ export default function App() {
 
       {/* Bottom Nav */}
       <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 430, background: COLORS.card, borderTop: `1px solid ${COLORS.border}`, display: "flex", padding: "0 8px" }}>
-        {tabs.map(t => <NavIcon key={t.id} icon={t.icon} label={t.label} active={tab === t.id} onClick={() => setTab(t.id)} badge={role === "manager" && t.id === "expenses" ? expenses.filter(e=>e.status==="pending").length : role === "manager" && t.id === "settings" ? deleteRequests.filter(r=>r.status==="pending").length : 0} />)}
+        {tabs.map(t => <NavIcon key={t.id} icon={t.icon} label={t.label} active={tab === t.id} onClick={() => { setTabHistory(h => [...h, tab]); setTab(t.id); }} badge={role === "manager" && t.id === "expenses" ? expenses.filter(e=>e.status==="pending").length : role === "manager" && t.id === "settings" ? deleteRequests.filter(r=>r.status==="pending").length : 0} />)}
       </div>
     </div></div></>
   );
