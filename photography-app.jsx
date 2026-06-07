@@ -1093,7 +1093,7 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
   const [refundId, setRefundId] = useState(null);
   const [refundAmount, setRefundAmount] = useState("");
   const [refundNote, setRefundNote] = useState("");
-  const [form, setForm] = useState({ client: "", items: "", from: "", to: "", days: "", pricePerDay: "", paid: "" });
+  const [form, setForm] = useState({ client: "", items: "", from: "", to: "", days: "", pricePerDay: "" });
 
   const addRental = () => {
     if (!form.client || !form.items) return;
@@ -1180,14 +1180,7 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
                 <span style={{ color: COLORS.text, fontWeight: 700, fontSize: 13 }}>{formatRWF(Number(form.days) * Number(form.pricePerDay))}</span>
               </div>
             )}
-            <div style={{ color: COLORS.accent, fontSize: 11, fontWeight: 700, letterSpacing: 1, margin: "8px 0" }}>PAYMENT</div>
-            <InputField placeholder="Amount Paid (RWF)" type="number" value={form.paid} onChange={e => setForm(p => ({ ...p, paid: e.target.value }))} />
-            {form.days && form.pricePerDay && (
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
-                <span style={{ color: COLORS.muted, fontSize: 12 }}>Balance</span>
-                <span style={{ color: COLORS.danger, fontSize: 13, fontWeight: 700 }}>{formatRWF(Math.max(0, Number(form.days) * Number(form.pricePerDay) - Number(form.paid || 0)))}</span>
-              </div>
-            )}
+
           </div>
           <button onClick={addRental} style={{ width: "100%", background: COLORS.accent, color: "#000", border: "none", borderRadius: 8, padding: 12, fontWeight: 700, cursor: "pointer" }}>
             Save Rental
