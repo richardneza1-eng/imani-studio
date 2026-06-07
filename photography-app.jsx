@@ -5,6 +5,7 @@ import React from "react";
 const FontStyle = () => (
   <style>{`
     * { font-family: 'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif !important; }
+    html, body, #root { background: #000000 !important; margin: 0; padding: 0; }
   `}</style>
 );
 
@@ -34,45 +35,24 @@ const ROLE_LABELS = {
   viewer: { label: "Viewer", color: "#6b6560", icon: "👁️" },
 };
 
-const initialClients = [
-  { id: 1, name: "Amina Uwase", phone: "+250 788 111 222", sessions: 3, status: "active" },
-  { id: 2, name: "Jean Pierre Habimana", phone: "+250 788 333 444", sessions: 1, status: "active" },
-  { id: 3, name: "Grace Mukamana", phone: "+250 788 555 666", sessions: 2, status: "inactive" },
-];
+const initialClients = [];
 
-const initialBookings = [
-  { id: 1, client: "Amina Uwase", type: "Wedding", date: "2026-06-20", time: "09:00", location: "Kigali Convention Centre", status: "confirmed", amount: 350000, paid: 175000, delivered: false, editedDelivered: false, refund: 0, refundNote: "", closed: false },
-  { id: 2, client: "Jean Pierre Habimana", type: "Portrait", date: "2026-06-15", time: "14:00", location: "Studio", status: "pending", amount: 80000, paid: 0, delivered: false, editedDelivered: false, refund: 0, refundNote: "", closed: false },
-  { id: 3, client: "Grace Mukamana", type: "Family", date: "2026-07-01", time: "10:00", location: "Nyandungu Park", status: "confirmed", amount: 120000, paid: 120000, delivered: false, editedDelivered: false, refund: 0, refundNote: "", closed: false },
-];
+const initialBookings = [];
 
 
-const initialExpenses = [
-  { id: 1, description: "Camera lens rental", category: "Equipment", amount: 25000, date: "2026-06-01", addedBy: "staff", staffName: "John Doe", status: "pending" },
-  { id: 2, description: "Transport to Nyandungu", category: "Transport", amount: 5000, date: "2026-06-03", addedBy: "staff", staffName: "John Doe", status: "approved" },
-];
+const initialExpenses = [];
 
 
-const initialRentals = [
-  { id: 1, client: "Amina Uwase", items: "Camera body + 50mm lens", from: "2026-06-10", to: "2026-06-11", days: 1, pricePerDay: 45000, amount: 45000, paid: 45000, returned: true },
-  { id: 2, client: "Jean Pierre Habimana", items: "Strobe x2 + triggers", from: "2026-06-14", to: "2026-06-15", days: 1, pricePerDay: 30000, amount: 30000, paid: 15000, returned: false },
-];
+const initialRentals = [];
 
 
-const initialFrames = [
-  { id: 1, client: "Amina Uwase", size: "A3", description: "Black wood frame", quantity: 2, costPrice: 10000, unitPrice: 15000, paid: 30000, date: "2026-06-01" },
-  { id: 2, client: "Grace Mukamana", size: "60x90cm", description: "Silver aluminium frame", quantity: 1, costPrice: 22000, unitPrice: 35000, paid: 0, date: "2026-06-05" },
-];
+const initialFrames = [];
 
 
-const initialStaffPayments = [
-  { id: 1, name: "John Doe", role: "Photographer", amount: 150000, date: "2026-06-01", note: "June salary" },
-];
+const initialStaffPayments = [];
 
 
-const initialManagerExpenses = [
-  { id: 1, description: "Equipment purchase", category: "Equipment", amount: 200000, date: "2026-06-01" },
-];
+const initialManagerExpenses = [];
 
 const formatRWF = (n) => `RWF ${Number(n || 0).toLocaleString()}`;
 
@@ -596,7 +576,7 @@ const Dashboard = ({ bookings, clients, expenses, rentals, frames, staffPayments
 };
 
 // ── CLIENTS ────────────────────────────────────────────────
-const Clients = ({ clients, setClients, role }) => {
+const Clients = ({ clients, setClients, role, deleteRequests, setDeleteRequests }) => {
   const canEdit = role === "manager" || role === "alain" || role === "max";
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "" });
@@ -608,9 +588,15 @@ const Clients = ({ clients, setClients, role }) => {
     setShowForm(false);
   };
 
-  const deleteClient = (id) => {
-    if (window.confirm("Delete this client? This cannot be undone.")) {
-      setClients(prev => prev.filter(c => c.id !== id));
+  const deleteClient = (id, name) => {
+    if (role === "manager") {
+      if (window.confirm("Delete this client? This cannot be undone.")) {
+        setClients(prev => prev.filter(c => c.id !== id));
+      }
+    } else {
+      if (window.confirm("Send delete request to Manager for approval?")) {
+        setDeleteRequests(prev => [...prev, { id: Date.now(), type: "client", itemId: id, itemName: name, requestedBy: role, status: "pending" }]);
+      }
     }
   };
 
@@ -650,9 +636,9 @@ const Clients = ({ clients, setClients, role }) => {
             <div style={{ textAlign: "right" }}>
               <Badge status={c.status} />
               <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 6 }}>{c.sessions} sessions</div>
-              {role === "manager" && (
-                <button onClick={() => deleteClient(c.id)} style={{ background: "none", border: "none", color: COLORS.danger, fontSize: 11, cursor: "pointer", marginTop: 6, padding: 0 }}>
-                  🗑️ Delete
+              {(role === "manager" || role === "alain" || role === "max") && (
+                <button onClick={() => deleteClient(c.id, c.name)} style={{ background: "none", border: "none", color: role === "manager" ? COLORS.danger : COLORS.muted, fontSize: 11, cursor: "pointer", marginTop: 6, padding: 0 }}>
+                  {role === "manager" ? "🗑️ Delete" : "🗑️ Request Delete"}
                 </button>
               )}
             </div>
@@ -664,7 +650,7 @@ const Clients = ({ clients, setClients, role }) => {
 };
 
 // ── BOOKINGS ───────────────────────────────────────────────
-const Bookings = ({ bookings, setBookings, clients, role }) => {
+const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDeleteRequests }) => {
   const canEdit = role === "manager" || role === "alain" || role === "max";
   const [showForm, setShowForm] = useState(false);
   const [addPaymentId, setAddPaymentId] = useState(null);
@@ -706,6 +692,18 @@ const Bookings = ({ bookings, setBookings, clients, role }) => {
 
   const markEditedDelivered = (id) => {
     setBookings(prev => prev.map(b => b.id === id ? { ...b, editedDelivered: true } : b));
+  };
+
+  const deleteBooking = (id, clientName) => {
+    if (role === "manager") {
+      if (window.confirm("Delete this booking? This cannot be undone.")) {
+        setBookings(prev => prev.filter(b => b.id !== id));
+      }
+    } else {
+      if (window.confirm("Send delete request to Manager for approval?")) {
+        setDeleteRequests(prev => [...prev, { id: Date.now(), type: "booking", itemId: id, itemName: `Booking: ${clientName}`, requestedBy: role, status: "pending" }]);
+      }
+    }
   };
 
   const applyExtraPayment = (id) => {
@@ -810,7 +808,14 @@ const Bookings = ({ bookings, setBookings, clients, role }) => {
             </div>
             <div style={{ color: COLORS.accent, fontSize: 12, marginBottom: 3 }}>📷 {b.type}{b.type === "Studio Session" && b.numPictures ? ` · ${b.numPictures} pics × ${formatRWF(Number(b.unitPicPrice))}` : ""}</div>
             <div style={{ color: COLORS.muted, fontSize: 12 }}>📅 {b.date} · {b.time}</div>
-            <div style={{ color: COLORS.muted, fontSize: 12, marginBottom: b.type === "Studio Session" && b.editedDeliveryDate ? 4 : 10 }}>📍 {b.location}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: b.type === "Studio Session" && b.editedDeliveryDate ? 4 : 10 }}>
+              <div style={{ color: COLORS.muted, fontSize: 12 }}>📍 {b.location}</div>
+              {(role === "manager" || role === "alain" || role === "max") && (
+                <button onClick={() => deleteBooking(b.id, b.client)} style={{ background: "none", border: "none", color: role === "manager" ? COLORS.danger : COLORS.muted, fontSize: 11, cursor: "pointer", padding: 0 }}>
+                  {role === "manager" ? "🗑️" : "🗑️ Request"}
+                </button>
+              )}
+            </div>
             {b.type === "Studio Session" && b.editedDeliveryDate && (
               <div style={{ color: "#6e9bc8", fontSize: 12, marginBottom: 10 }}>🖼️ Edited delivery: {b.editedDeliveryDate}</div>
             )}
@@ -1494,7 +1499,7 @@ const Shop = ({ rentals, setRentals, frames, setFrames, clients, role }) => {
 
 
 // ── SETTINGS (Manager only) ────────────────────────────────
-const Settings = ({ pins, setPins }) => {
+const Settings = ({ pins, setPins, deleteRequests, setDeleteRequests, setClients, setBookings, clients, bookings }) => {
   const [form, setForm] = useState({
     manager: "", alain: "", max: "", viewer: ""
   });
@@ -1528,6 +1533,38 @@ const Settings = ({ pins, setPins }) => {
     <div>
       <h3 style={{ color: COLORS.text, margin: "0 0 6px", fontSize: 18, fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif", letterSpacing: 2 }}>Settings</h3>
       <p style={{ color: COLORS.muted, fontSize: 13, marginBottom: 16 }}>Manage access PINs for your team</p>
+
+      {/* Delete Requests */}
+      {deleteRequests.filter(r => r.status === "pending").length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <h4 style={{ color: COLORS.danger, fontSize: 11, letterSpacing: 1.5, textTransform: "uppercase", margin: "0 0 10px" }}>
+            🗑️ Delete Requests ({deleteRequests.filter(r => r.status === "pending").length})
+          </h4>
+          {deleteRequests.filter(r => r.status === "pending").map(req => (
+            <Card key={req.id} style={{ borderLeft: `3px solid ${COLORS.danger}` }}>
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ color: COLORS.text, fontWeight: 600 }}>{req.itemName}</div>
+                <div style={{ color: COLORS.muted, fontSize: 12, marginTop: 3 }}>
+                  👤 Requested by: {req.requestedBy} · {req.type}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => {
+                  if (req.type === "client") setClients(prev => prev.filter(c => c.id !== req.itemId));
+                  if (req.type === "booking") setBookings(prev => prev.filter(b => b.id !== req.itemId));
+                  setDeleteRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: "approved" } : r));
+                }} style={{ flex: 1, background: COLORS.danger, color: "#fff", border: "none", borderRadius: 8, padding: "7px 0", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                  ✅ Approve Delete
+                </button>
+                <button onClick={() => setDeleteRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: "rejected" } : r))}
+                  style={{ flex: 1, background: "transparent", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "7px 0", color: COLORS.muted, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                  ❌ Reject
+                </button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {saved && (
         <Card style={{ background: "#0d2b1a", borderColor: COLORS.success, marginBottom: 16 }}>
@@ -1590,6 +1627,7 @@ const Settings = ({ pins, setPins }) => {
 // ── MAIN APP ───────────────────────────────────────────────
 export default function App() {
   const [pins, setPins] = useState(DEFAULT_PINS);
+  const [deleteRequests, setDeleteRequests] = useState([]);
   const [role, setRole] = useState(null);
   const [tab, setTab] = useState("bookings");
   const [clients, setClients] = useState(initialClients);
@@ -1617,7 +1655,7 @@ export default function App() {
   const tabs = allTabs.filter(t => t.roles.includes(role));
 
   return (
-    <><FontStyle /><div style={{ background: COLORS.bg, minHeight: "100vh", maxWidth: 430, margin: "0 auto", fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif" }}>
+    <><FontStyle /><div style={{ background: "#000000", minHeight: "100vh", width: "100%", display: "flex", justifyContent: "center" }}><div style={{ background: COLORS.bg, minHeight: "100vh", width: "100%", maxWidth: 430, margin: "0 auto", fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif" }}>
       {/* Header */}
       <div style={{ padding: "16px 20px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -1635,18 +1673,18 @@ export default function App() {
       {/* Content */}
       <div style={{ padding: "20px 16px 90px" }}>
         {tab === "home" && role === "manager" && <Dashboard bookings={bookings} clients={clients} expenses={expenses} rentals={rentals} frames={frames} staffPayments={staffPayments} managerExpenses={managerExpenses} role={role} />}
-        {tab === "clients" && <Clients clients={clients} setClients={setClients} role={role} />}
-        {tab === "bookings" && <Bookings bookings={bookings} setBookings={setBookings} clients={clients} role={role} />}
+        {tab === "clients" && <Clients clients={clients} setClients={setClients} role={role} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} />}
+        {tab === "bookings" && <Bookings bookings={bookings} setBookings={setBookings} clients={clients} role={role} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} />}
         {tab === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} managerExpenses={managerExpenses} setManagerExpenses={setManagerExpenses} staffPayments={staffPayments} setStaffPayments={setStaffPayments} role={role} />}
         {tab === "shop" && <Shop rentals={rentals} setRentals={setRentals} frames={frames} setFrames={setFrames} clients={clients} role={role} />}
-        {tab === "settings" && <Settings pins={pins} setPins={setPins} />}
+        {tab === "settings" && <Settings pins={pins} setPins={setPins} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} setClients={setClients} setBookings={setBookings} clients={clients} bookings={bookings} />}
         {tab === "completed" && <Completed bookings={bookings} setBookings={setBookings} role={role} />}
       </div>
 
       {/* Bottom Nav */}
       <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 430, background: COLORS.card, borderTop: `1px solid ${COLORS.border}`, display: "flex", padding: "0 8px" }}>
-        {tabs.map(t => <NavIcon key={t.id} icon={t.icon} label={t.label} active={tab === t.id} onClick={() => setTab(t.id)} badge={role === "manager" && t.id === "expenses" ? expenses.filter(e=>e.status==="pending").length : 0} />)}
+        {tabs.map(t => <NavIcon key={t.id} icon={t.icon} label={t.label} active={tab === t.id} onClick={() => setTab(t.id)} badge={role === "manager" && t.id === "expenses" ? expenses.filter(e=>e.status==="pending").length : role === "manager" && t.id === "settings" ? deleteRequests.filter(r=>r.status==="pending").length : 0} />)}
       </div>
-    </div></>
+    </div></div></>
   );
 }
