@@ -238,7 +238,7 @@ const ExpenseList = ({ expenses, setExpenses, role, label, color = COLORS.danger
     if (window.confirm("Delete this expense?")) setExpenses(prev => prev.filter(e => e.id !== id));
   };
 
-  const total = expenses.reduce((s, e) => s + e.amount, 0);
+  const total = expenses.filter(e => !e.status || e.status === "approved").reduce((s, e) => s + e.amount, 0);
 
   return (
     <div>
@@ -411,8 +411,8 @@ const Expenses = ({ expenses, setExpenses, managerExpenses, setManagerExpenses, 
           <ExpenseList
             expenses={[]}
             setExpenses={(updater) => {
-              if (typeof updater === "function") return;
-              const newExp = updater[updater.length - 1];
+              const newItems = typeof updater === "function" ? updater([]) : updater;
+              const newExp = newItems[newItems.length - 1];
               if (newExp) setManagerExpenses(prev => [...prev, { ...newExp, addedBy: role }]);
             }}
             role={role}
@@ -434,7 +434,7 @@ const Dashboard = ({ bookings, clients, expenses, rentals, frames, studioSession
   const totalRefunds = bookings.reduce((s, b) => s + (b.refund || 0), 0);
   const outstanding = bookings.reduce((s, b) => s + (b.amount - b.paid), 0);
   const upcoming = bookings.filter(b => b.status === "confirmed").length;
-  const totalExpenses = expenses.filter(e => e.status === 'approved').reduce((s, e) => s + e.amount, 0);
+  const totalExpenses = expenses.filter(e => !e.status || e.status === 'approved').reduce((s, e) => s + e.amount, 0);
   const rentalIncome = rentals.reduce((s, r) => s + r.paid, 0);
   const frameIncome = frames.reduce((s, f) => s + f.paid, 0);
   const frameNetGain = frames.reduce((s, f) => s + ((f.unitPrice - (f.costPrice||0)) * f.quantity), 0);
@@ -452,8 +452,9 @@ const Dashboard = ({ bookings, clients, expenses, rentals, frames, studioSession
         <p style={{ color: COLORS.accent, fontSize: 12, margin: "2px 0 0", letterSpacing: 1 }}>IMANI STUDIO · KIGALI</p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-        {[
+      {/* Stats — paginated 2x2, arrow buttons to switch pages */}
+      {(() => {
+        const stats = [
           { label: "Revenue Collected", value: formatRWF(totalRevenue), icon: "💰", color: COLORS.success },
           { label: "Outstanding", value: formatRWF(outstanding), icon: "⏳", color: COLORS.danger },
           { label: "Total Expenses", value: formatRWF(expenses.filter(e=>e.status==="approved").reduce((s,e)=>s+e.amount,0)), icon: "💸", color: COLORS.danger },
@@ -465,14 +466,37 @@ const Dashboard = ({ bookings, clients, expenses, rentals, frames, studioSession
           { label: "Confirmed Jobs", value: upcoming, icon: "📅", color: COLORS.accent },
           { label: "Total Refunds", value: formatRWF(totalRefunds), icon: "💸", color: COLORS.danger },
           { label: "Total Clients", value: clients.length, icon: "👥", color: "#6e9bc8" },
-        ].map(s => (
-          <Card key={s.label} style={{ padding: 14 }}>
-            <div style={{ fontSize: 20, marginBottom: 6 }}>{s.icon}</div>
-            <div style={{ color: s.color, fontSize: 20, fontWeight: 700 }}>{s.value}</div>
-            <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>{s.label}</div>
-          </Card>
-        ))}
-      </div>
+        ];
+        const pages = [];
+        for (let i = 0; i < stats.length; i += 4) pages.push(stats.slice(i, i + 4));
+        const [page, setPage] = React.useState(0);
+        const current = pages[page] || [];
+        return (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+              {current.map(s => (
+                <div key={s.label} style={{ background: COLORS.card, borderRadius: 16, border: `1px solid ${COLORS.border}`, padding: 14 }}>
+                  <div style={{ fontSize: 20, marginBottom: 6 }}>{s.icon}</div>
+                  <div style={{ color: s.color, fontSize: 17, fontWeight: 700 }}>{s.value}</div>
+                  <div style={{ color: COLORS.muted, fontSize: 10, marginTop: 2 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+            {/* Page controls */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <button onClick={() => setPage(p => Math.max(p - 1, 0))} disabled={page === 0}
+                style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 16px", color: page === 0 ? COLORS.border : COLORS.text, cursor: page === 0 ? "default" : "pointer", fontSize: 18 }}>‹</button>
+              <div style={{ display: "flex", gap: 6 }}>
+                {pages.map((_, i) => (
+                  <div key={i} onClick={() => setPage(i)} style={{ width: 6, height: 6, borderRadius: "50%", background: i === page ? COLORS.accent : COLORS.border, cursor: "pointer" }} />
+                ))}
+              </div>
+              <button onClick={() => setPage(p => Math.min(p + 1, pages.length - 1))} disabled={page === pages.length - 1}
+                style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "6px 16px", color: page === pages.length - 1 ? COLORS.border : COLORS.text, cursor: page === pages.length - 1 ? "default" : "pointer", fontSize: 18 }}>›</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* All bookings summary */}
       {/* Net Profit Banner */}
@@ -513,7 +537,8 @@ const Dashboard = ({ bookings, clients, expenses, rentals, frames, studioSession
         if (sorted.length === 0) return <Card><div style={{ color: COLORS.muted, fontSize: 13, textAlign: "center" }}>No data yet</div></Card>;
 
         const [selectedIdx, setSelectedIdx] = React.useState(0);
-        const [key, m] = sorted[selectedIdx] || sorted[0];
+        const selected = sorted[selectedIdx] || sorted[0];
+        const [key, m] = selected;
         const income = m.bookings + m.rentals + m.frames;
         const net = income - m.expenses - m.staff;
 
@@ -697,11 +722,19 @@ const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDel
 
   const addBooking = () => {
     if (!form.client || !form.date) return;
-    const amount = Number(form.amount) || 0;
-    const paid = Number(form.paid) || 0;
+    const isStudio = form.type === "Studio Session";
+    const amount = isStudio
+      ? (Number(form.numPictures) || 0) * (Number(form.unitPicPrice) || 0)
+      : Number(form.amount) || 0;
+    const paid = Math.min(Number(form.paid) || 0, amount);
     const status = paid >= amount && amount > 0 ? "confirmed" : "pending";
-    setBookings(prev => [...prev, { id: Date.now(), ...form, amount, paid, status, delivered: false, editedDelivered: false, editedDeliveryDate: form.editedDeliveryDate || "" }]);
-    setForm({ client: "", type: "Wedding", date: "", time: "", location: "", amount: "", paid: "" });
+    if (editId) {
+      setBookings(prev => prev.map(b => b.id === editId ? { ...b, ...form, amount, paid, status } : b));
+      setEditId(null);
+    } else {
+      setBookings(prev => [...prev, { id: Date.now(), ...form, amount, paid, status, delivered: false, editedDelivered: false, editedDeliveryDate: form.editedDeliveryDate || "", numPictures: form.numPictures || "", unitPicPrice: form.unitPicPrice || "", refund: 0, refundNote: "", closed: false }]);
+    }
+    setForm({ client: "", type: "Wedding", date: "", time: "", location: "", amount: "", paid: "", editedDeliveryDate: "", numPictures: "", unitPicPrice: "" });
     setShowForm(false);
   };
 
@@ -929,12 +962,12 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false }) => {
   const canEdit = role === "manager" || role === "alain" || role === "max";
   const [showForm, setShowForm] = useState(false);
   const [addPaymentId, setAddPaymentId] = useState(null);
+  const [editId, setEditId] = useState(null);
   const [extraPayment, setExtraPayment] = useState("");
   const [refundId, setRefundId] = useState(null);
   const [refundAmount, setRefundAmount] = useState("");
   const [refundNote, setRefundNote] = useState("");
   const [form, setForm] = useState({ client: "", size: "A4", description: "", quantity: "1", costPrice: "", unitPrice: "", paid: "" });
-  const [editId, setEditId] = useState(null);
 
   const sizes = ["A6", "A5", "A4", "A3", "A2", "A1", "20x30cm", "30x40cm", "40x60cm", "60x90cm", "Custom"];
 
@@ -1180,12 +1213,12 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
   const canEdit = role === "manager" || role === "alain" || role === "max";
   const [showForm, setShowForm] = useState(false);
   const [addPaymentId, setAddPaymentId] = useState(null);
+  const [editId, setEditId] = useState(null);
   const [extraPayment, setExtraPayment] = useState("");
   const [refundId, setRefundId] = useState(null);
   const [refundAmount, setRefundAmount] = useState("");
   const [refundNote, setRefundNote] = useState("");
   const [form, setForm] = useState({ client: "", items: "", from: "", to: "", days: "", pricePerDay: "" });
-  const [editId, setEditId] = useState(null);
 
   const addRental = () => {
     if (!form.client || !form.items) return;
@@ -1481,8 +1514,12 @@ const CompletedCard = ({ b, setBookings, role }) => {
     <Card style={{ borderLeft: `3px solid ${hasRefund ? COLORS.danger : COLORS.success}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
         <div style={{ color: COLORS.text, fontWeight: 600, fontSize: 15 }}>{b.client}</div>
-        <span style={{ background: hasRefund ? "#3a1a1a" : "#1a3a2a", color: hasRefund ? COLORS.danger : COLORS.success, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 600 }}>
-          {hasRefund ? "💸 Refunded" : "✅ Paid"}
+        <span style={{ 
+          background: b.closed ? "#0d2b1a" : hasRefund ? "#3a1a1a" : "#1a3a2a", 
+          color: b.closed ? COLORS.success : hasRefund ? COLORS.danger : COLORS.success, 
+          borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 1 
+        }}>
+          {b.closed ? "✅ COMPLETED" : hasRefund ? "💸 Refunded" : "✅ Paid"}
         </span>
       </div>
       <div style={{ color: COLORS.accent, fontSize: 12, marginBottom: 3 }}>📷 {b.type}</div>
@@ -1511,7 +1548,7 @@ const CompletedCard = ({ b, setBookings, role }) => {
       )}
 
       {/* Refund button */}
-      {canAct && b.paid > 0 && (
+      {canAct && b.paid > 0 && !b.closed && (
         <div style={{ marginTop: 10 }}>
           {showRefund ? (
             <div>
@@ -1523,7 +1560,7 @@ const CompletedCard = ({ b, setBookings, role }) => {
                 onChange={e => setRefNote(e.target.value)}
                 style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "8px 10px", color: COLORS.text, fontSize: 13, marginBottom: 8, boxSizing: "border-box" }} />
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={applyRefund}
+                <button onClick={() => applyRefund()}
                   style={{ flex: 1, background: COLORS.danger, color: "#fff", border: "none", borderRadius: 8, padding: "8px 0", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
                   💸 Confirm Refund
                 </button>
@@ -1537,29 +1574,81 @@ const CompletedCard = ({ b, setBookings, role }) => {
                 style={{ flex: 1, background: "transparent", border: `1px solid ${COLORS.danger}`, borderRadius: 8, padding: 8, color: COLORS.danger, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 💸 Issue Refund
               </button>
-              <button onClick={() => { if(window.confirm("Mark this complaint as settled with no refund?")) setBookings(prev => prev.map(x => x.id === b.id ? { ...x, refundNote: "Settled — no refund issued", refund: 0 } : x)); }}
-                style={{ flex: 1, background: "transparent", border: `1px solid ${COLORS.success}`, borderRadius: 8, padding: 8, color: COLORS.success, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                ✅ No Refund
+              <button onClick={() => setBookings(prev => prev.map(x => x.id === b.id ? { ...x, closed: true, refund: 0 } : x))}
+                style={{ flex: 1, background: COLORS.success, border: "none", borderRadius: 8, padding: 8, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+                🔒 No Refund
               </button>
             </div>
           )}
+        </div>
+      )}
+      {b.closed && (
+        <div style={{ textAlign: "center", background: "#0d2b1a", borderRadius: 8, padding: "10px 0", color: COLORS.success, fontWeight: 700, fontSize: 15, letterSpacing: 2, marginTop: 8 }}>
+          ✅ COMPLETED
         </div>
       )}
     </Card>
   );
 };
 
-const Completed = ({ bookings, setBookings, role }) => {
+const Completed = ({ bookings, setBookings, studioSessions = [], setStudioSessions, frames = [], setFrames, role }) => {
   const completed = bookings.filter(b => b.amount > 0 && (b.paid >= b.amount || (b.refund||0) > 0));
+  const completedSessions = studioSessions.filter(s => s.completed);
+  const completedFrames = frames.filter(f => f.completed);
 
   return (
     <div>
       <h3 style={{ color: COLORS.text, margin: "0 0 6px", fontSize: 18, fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif", letterSpacing: 2 }}>Completed</h3>
       <p style={{ color: COLORS.muted, fontSize: 13, marginBottom: 16 }}>Fully paid bookings</p>
-      {completed.length === 0 && (
-        <Card><div style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", padding: 10 }}>No completed bookings yet</div></Card>
-      )}
+
       {completed.map(b => <CompletedCard key={b.id} b={b} setBookings={setBookings} role={role} />)}
+
+      {/* Completed Studio Sessions */}
+      {completedSessions.length > 0 && (
+        <>
+          <h3 style={{ color: COLORS.muted, fontSize: 11, letterSpacing: 1.5, margin: "20px 0 10px", textTransform: "uppercase" }}>📷 Studio Sessions</h3>
+          {completedSessions.map(s => (
+            <Card key={s.id} style={{ borderLeft: `3px solid ${COLORS.success}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                <div style={{ color: COLORS.text, fontWeight: 600, fontSize: 15 }}>{s.client}</div>
+                <span style={{ background: "#0d2b1a", color: COLORS.success, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 1 }}>✅ COMPLETED</span>
+              </div>
+              <div style={{ color: COLORS.accent, fontSize: 12, marginBottom: 3 }}>📷 {s.sessionType}</div>
+              <div style={{ color: COLORS.muted, fontSize: 12, marginBottom: 3 }}>🖼️ {s.numPictures} pics × {formatRWF(s.unitPrice)}</div>
+              {s.deliveryDate && <div style={{ color: "#6e9bc8", fontSize: 12, marginBottom: 8 }}>📅 Delivery: {s.deliveryDate}</div>}
+              <div style={{ display: "flex", justifyContent: "space-between", background: COLORS.bg, borderRadius: 8, padding: 10 }}>
+                <span style={{ color: COLORS.muted, fontSize: 12 }}>Total</span>
+                <span style={{ color: COLORS.success, fontWeight: 700 }}>{formatRWF(s.amount)}</span>
+              </div>
+            </Card>
+          ))}
+        </>
+      )}
+
+      {/* Completed Frames */}
+      {completedFrames.length > 0 && (
+        <>
+          <h3 style={{ color: COLORS.muted, fontSize: 11, letterSpacing: 1.5, margin: "20px 0 10px", textTransform: "uppercase" }}>🖼️ Frame Sales</h3>
+          {completedFrames.map(f => (
+            <Card key={f.id} style={{ borderLeft: `3px solid ${COLORS.success}` }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                <div style={{ color: COLORS.text, fontWeight: 600, fontSize: 15 }}>{f.client}</div>
+                <span style={{ background: "#0d2b1a", color: COLORS.success, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 700, letterSpacing: 1 }}>✅ COMPLETED</span>
+              </div>
+              <div style={{ color: COLORS.accent, fontSize: 12, marginBottom: 3 }}>🖼️ {f.size} {f.description ? `· ${f.description}` : ""}</div>
+              <div style={{ color: COLORS.muted, fontSize: 12, marginBottom: 8 }}>Qty: {f.quantity} × {formatRWF(f.unitPrice)}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", background: COLORS.bg, borderRadius: 8, padding: 10 }}>
+                <span style={{ color: COLORS.muted, fontSize: 12 }}>Total</span>
+                <span style={{ color: COLORS.success, fontWeight: 700 }}>{formatRWF(f.quantity * f.unitPrice)}</span>
+              </div>
+            </Card>
+          ))}
+        </>
+      )}
+
+      {completed.length === 0 && completedSessions.length === 0 && completedFrames.length === 0 && (
+        <Card><div style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", padding: 10 }}>No completed items yet</div></Card>
+      )}
     </div>
   );
 };
@@ -2068,23 +2157,23 @@ export default function App() {
   return (
     <><FontStyle /><div style={{ background: "#000000", minHeight: "100vh", width: "100%", display: "flex", justifyContent: "center" }}><div style={{ background: COLORS.bg, minHeight: "100vh", width: "100%", maxWidth: 430, margin: "0 auto", fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif" }}>
       {/* Header */}
-      <div style={{ padding: "16px 20px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ padding: "16px 20px", borderBottom: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
           {tabHistory.length > 0 && (
             <button onClick={() => { const prev = tabHistory[tabHistory.length - 1]; setTab(prev); setTabHistory(h => h.slice(0, -1)); }}
               style={{ background: "none", border: "none", color: COLORS.muted, fontSize: 22, cursor: "pointer", padding: 0, lineHeight: 1 }}>‹</button>
           )}
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <span style={{ color: COLORS.accent, fontSize: 32, fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif", fontWeight: 700, letterSpacing: 4, lineHeight: 1 }}>IMANI</span>
-            <span style={{ color: COLORS.text, fontSize: 22, fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif", fontWeight: 700, letterSpacing: 4, lineHeight: 1 }}>STUDIO</span>
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+              <span style={{ color: COLORS.accent, fontSize: 30, fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif", fontWeight: 700, letterSpacing: 4, lineHeight: 1 }}>IMANI</span>
+              <span style={{ color: COLORS.text, fontSize: 30, fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif", fontWeight: 700, letterSpacing: 4, lineHeight: 1 }}>STUDIO</span>
+            </div>
+            <span style={{ color: roleInfo.color, fontSize: 11, fontWeight: 600, letterSpacing: 1, marginTop: 4 }}>{roleInfo.icon} {roleInfo.label}</span>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ color: roleInfo.color, fontSize: 12, fontWeight: 600 }}>{roleInfo.icon} {roleInfo.label}</span>
-          <button onClick={() => setRole(null)} style={{ background: "none", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "3px 8px", color: COLORS.muted, fontSize: 11, cursor: "pointer" }}>
-            Exit
-          </button>
-        </div>
+        <button onClick={() => setRole(null)} style={{ background: "none", border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "5px 12px", color: COLORS.muted, fontSize: 11, cursor: "pointer", marginTop: 4 }}>
+          Exit
+        </button>
       </div>
 
       {/* Content */}
@@ -2095,7 +2184,7 @@ export default function App() {
         {tab === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} managerExpenses={managerExpenses} setManagerExpenses={setManagerExpenses} staffPayments={staffPayments} setStaffPayments={setStaffPayments} role={role} />}
         {tab === "shop" && <Shop rentals={rentals} setRentals={setRentals} frames={frames} setFrames={setFrames} studioSessions={studioSessions} setStudioSessions={setStudioSessions} clients={clients} role={role} />}
         {tab === "settings" && <Settings pins={pins} setPins={setPins} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} setClients={setClients} setBookings={setBookings} clients={clients} bookings={bookings} />}
-        {tab === "completed" && <Completed bookings={bookings} setBookings={setBookings} role={role} />}
+        {tab === "completed" && <Completed bookings={bookings} setBookings={setBookings} studioSessions={studioSessions} setStudioSessions={setStudioSessions} frames={frames} setFrames={setFrames} role={role} />}
       </div>
 
       {/* Bottom Nav */}
