@@ -54,6 +54,9 @@ const initialStaffPayments = [];
 
 const initialManagerExpenses = [];
 
+
+const initialStudioSessions = [];
+
 const formatRWF = (n) => `RWF ${Number(n || 0).toLocaleString()}`;
 
 const Badge = ({ status }) => {
@@ -426,7 +429,7 @@ const Expenses = ({ expenses, setExpenses, managerExpenses, setManagerExpenses, 
 };
 
 // ── DASHBOARD (Manager only) ───────────────────────────────
-const Dashboard = ({ bookings, clients, expenses, rentals, frames, staffPayments, managerExpenses, role }) => {
+const Dashboard = ({ bookings, clients, expenses, rentals, frames, studioSessions, staffPayments, managerExpenses, role }) => {
   const totalRevenue = bookings.reduce((s, b) => s + b.paid, 0);
   const totalRefunds = bookings.reduce((s, b) => s + (b.refund || 0), 0);
   const outstanding = bookings.reduce((s, b) => s + (b.amount - b.paid), 0);
@@ -437,7 +440,8 @@ const Dashboard = ({ bookings, clients, expenses, rentals, frames, staffPayments
   const frameNetGain = frames.reduce((s, f) => s + ((f.unitPrice - (f.costPrice||0)) * f.quantity), 0);
   const totalStaffPaid = staffPayments.reduce((s, p) => s + p.amount, 0);
   const totalManagerExp = staffPayments.length >= 0 ? (typeof managerExpenses !== "undefined" ? managerExpenses.reduce((s,e)=>s+e.amount,0) : 0) : 0;
-  const netProfit = totalRevenue + rentalIncome + frameIncome - totalExpenses - totalStaffPaid;
+  const studioIncome = studioSessions.reduce((s, x) => s + x.paid, 0);
+  const netProfit = totalRevenue + rentalIncome + frameIncome + studioIncome - totalExpenses - totalStaffPaid;
   const nextBooking = bookings.filter(b => b.status === "confirmed")[0];
 
   return (
@@ -456,6 +460,7 @@ const Dashboard = ({ bookings, clients, expenses, rentals, frames, staffPayments
           { label: "Rental Income", value: formatRWF(rentals.reduce((s,r)=>s+r.paid,0)), icon: "🎥", color: COLORS.success },
           { label: "Frame Sales", value: formatRWF(frames.reduce((s,f)=>s+f.paid,0)), icon: "🖼️", color: COLORS.success },
           { label: "Frame Net Gain", value: formatRWF(frameNetGain), icon: "📈", color: COLORS.success },
+          { label: "Studio Sessions", value: formatRWF(studioIncome), icon: "📷", color: COLORS.success },
           { label: "Staff Paid", value: formatRWF(staffPayments.reduce((s,p)=>s+p.amount,0)), icon: "👔", color: "#c89b6e" },
           { label: "Confirmed Jobs", value: upcoming, icon: "📅", color: COLORS.accent },
           { label: "Total Refunds", value: formatRWF(totalRefunds), icon: "💸", color: COLORS.danger },
@@ -502,6 +507,7 @@ const Dashboard = ({ bookings, clients, expenses, rentals, frames, staffPayments
         expenses.forEach(e => addToMonth(e.date, e.amount, "expenses"));
         staffPayments.forEach(p => addToMonth(p.date, p.amount, "staff"));
         if (managerExpenses) managerExpenses.forEach(e => addToMonth(e.date, e.amount, "expenses"));
+        if (studioSessions) studioSessions.forEach(s => addToMonth(s.date, s.paid, "bookings"));
 
         const sorted = Object.entries(months).sort((a,b) => b[0].localeCompare(a[0]));
         if (sorted.length === 0) return <Card><div style={{ color: COLORS.muted, fontSize: 13, textAlign: "center" }}>No data yet</div></Card>;
@@ -586,24 +592,27 @@ const Dashboard = ({ bookings, clients, expenses, rentals, frames, staffPayments
 const Clients = ({ clients, setClients, role, deleteRequests, setDeleteRequests }) => {
   const canEdit = role === "manager" || role === "alain" || role === "max";
   const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [form, setForm] = useState({ name: "", phone: "" });
 
   const addClient = () => {
     if (!form.name) return;
-    setClients(prev => [...prev, { id: Date.now(), ...form, sessions: 0, status: "active" }]);
+    if (editId) {
+      setClients(prev => prev.map(c => c.id === editId ? { ...c, ...form } : c));
+      setEditId(null);
+    } else {
+      setClients(prev => [...prev, { id: Date.now(), ...form, sessions: 0, status: "active" }]);
+    }
     setForm({ name: "", phone: "" });
     setShowForm(false);
   };
 
   const deleteClient = (id, name) => {
     if (role === "manager") {
-      if (window.confirm("Delete this client? This cannot be undone.")) {
-        setClients(prev => prev.filter(c => c.id !== id));
-      }
+      setConfirmDeleteId(id);
     } else {
-      if (window.confirm("Send delete request to Manager for approval?")) {
-        setDeleteRequests(prev => [...prev, { id: Date.now(), type: "client", itemId: id, itemName: name, requestedBy: role, status: "pending" }]);
-      }
+      setDeleteRequests(prev => [...prev, { id: Date.now(), type: "client", itemId: id, itemName: name, requestedBy: role, status: "pending" }]);
     }
   };
 
@@ -620,11 +629,12 @@ const Clients = ({ clients, setClients, role, deleteRequests, setDeleteRequests 
 
       {canEdit && showForm && (
         <Card style={{ borderColor: COLORS.accent }}>
-          <BackButton onClick={() => setShowForm(false)} />
+          <BackButton onClick={() => { setShowForm(false); setEditId(null); setForm({ name: "", phone: "" }); }} />
+          <div style={{ color: COLORS.accent, fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>{editId ? "EDIT CLIENT" : "NEW CLIENT"}</div>
           <InputField placeholder="Full Name" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
           <InputField placeholder="Phone" value={form.phone} onChange={e => setForm(p => ({ ...p, phone: e.target.value }))} />
           <button onClick={addClient} style={{ width: "100%", background: COLORS.accent, color: "#000", border: "none", borderRadius: 8, padding: 12, fontWeight: 700, cursor: "pointer" }}>
-            Save Client
+            {editId ? "Update Client" : "Save Client"}
           </button>
         </Card>
       )}
@@ -645,9 +655,22 @@ const Clients = ({ clients, setClients, role, deleteRequests, setDeleteRequests 
               <Badge status={c.status} />
               <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 6 }}>{c.sessions} sessions</div>
               {(role === "manager" || role === "alain" || role === "max") && (
-                <button onClick={() => deleteClient(c.id, c.name)} style={{ background: "none", border: "none", color: role === "manager" ? COLORS.danger : COLORS.muted, fontSize: 11, cursor: "pointer", marginTop: 6, padding: 0 }}>
-                  {role === "manager" ? "🗑️ Delete" : "🗑️ Request Delete"}
-                </button>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                  <button onClick={() => { setForm({ name: c.name, phone: c.phone }); setEditId(c.id); setShowForm(true); }}
+                    style={{ background: "none", border: "none", color: COLORS.accent, fontSize: 11, cursor: "pointer", padding: 0 }}>✏️ Edit</button>
+                  {confirmDeleteId === c.id ? (
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button onClick={() => { setClients(prev => prev.filter(x => x.id !== c.id)); setConfirmDeleteId(null); }}
+                        style={{ background: COLORS.danger, color: "#fff", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>Confirm</button>
+                      <button onClick={() => setConfirmDeleteId(null)}
+                        style={{ background: COLORS.border, color: COLORS.muted, border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>Cancel</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => deleteClient(c.id, c.name)} style={{ background: "none", border: "none", color: role === "manager" ? COLORS.danger : COLORS.muted, fontSize: 11, cursor: "pointer", padding: 0 }}>
+                      {role === "manager" ? "🗑️ Delete" : "🗑️ Request"}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -661,6 +684,8 @@ const Clients = ({ clients, setClients, role, deleteRequests, setDeleteRequests 
 const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDeleteRequests }) => {
   const canEdit = role === "manager" || role === "alain" || role === "max";
   const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [confirmDeleteBookingId, setConfirmDeleteBookingId] = useState(null);
   const [addPaymentId, setAddPaymentId] = useState(null);
   const [extraPayment, setExtraPayment] = useState("");
   const [refundId, setRefundId] = useState(null);
@@ -668,7 +693,7 @@ const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDel
   const [refundNote, setRefundNote] = useState("");
   const [form, setForm] = useState({ client: "", type: "Wedding", date: "", time: "", location: "", amount: "", paid: "", editedDeliveryDate: "", numPictures: "", unitPicPrice: "" });
 
-  const types = ["Wedding", "Portrait", "Family", "Birthday", "Family Function", "Events", "Corporate", "Studio Session"];
+  const types = ["Wedding", "Portrait", "Family", "Birthday", "Family Function", "Events", "Corporate"];
 
   const addBooking = () => {
     if (!form.client || !form.date) return;
@@ -704,13 +729,9 @@ const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDel
 
   const deleteBooking = (id, clientName) => {
     if (role === "manager") {
-      if (window.confirm("Delete this booking? This cannot be undone.")) {
-        setBookings(prev => prev.filter(b => b.id !== id));
-      }
+      setConfirmDeleteBookingId(id);
     } else {
-      if (window.confirm("Send delete request to Manager for approval?")) {
-        setDeleteRequests(prev => [...prev, { id: Date.now(), type: "booking", itemId: id, itemName: `Booking: ${clientName}`, requestedBy: role, status: "pending" }]);
-      }
+      setDeleteRequests(prev => [...prev, { id: Date.now(), type: "booking", itemId: id, itemName: `Booking: ${clientName}`, requestedBy: role, status: "pending" }]);
     }
   };
 
@@ -819,11 +840,26 @@ const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDel
             <div style={{ color: COLORS.muted, fontSize: 12 }}>📅 {b.date} · {b.time}</div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: b.type === "Studio Session" && b.editedDeliveryDate ? 4 : 10 }}>
               <div style={{ color: COLORS.muted, fontSize: 12 }}>📍 {b.location}</div>
-              {(role === "manager" || role === "alain" || role === "max") && (
-                <button onClick={() => deleteBooking(b.id, b.client)} style={{ background: "none", border: "none", color: role === "manager" ? COLORS.danger : COLORS.muted, fontSize: 11, cursor: "pointer", padding: 0 }}>
-                  {role === "manager" ? "🗑️" : "🗑️ Request"}
-                </button>
-              )}
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {canEdit && (
+                  <button onClick={() => { setForm({ client: b.client, type: b.type, date: b.date, time: b.time, location: b.location, amount: b.amount, paid: b.paid, editedDeliveryDate: b.editedDeliveryDate || "", numPictures: b.numPictures || "", unitPicPrice: b.unitPicPrice || "" }); setEditId(b.id); setShowForm(true); }}
+                    style={{ background: "none", border: "none", color: COLORS.accent, fontSize: 11, cursor: "pointer", padding: 0 }}>✏️ Edit</button>
+                )}
+                {(role === "manager" || role === "alain" || role === "max") && (
+                  confirmDeleteBookingId === b.id ? (
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button onClick={() => { setBookings(prev => prev.filter(x => x.id !== b.id)); setConfirmDeleteBookingId(null); }}
+                        style={{ background: COLORS.danger, color: "#fff", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>Confirm</button>
+                      <button onClick={() => setConfirmDeleteBookingId(null)}
+                        style={{ background: COLORS.border, color: COLORS.muted, border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>Cancel</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => deleteBooking(b.id, b.client)} style={{ background: "none", border: "none", color: role === "manager" ? COLORS.danger : COLORS.muted, fontSize: 11, cursor: "pointer", padding: 0 }}>
+                      {role === "manager" ? "🗑️" : "🗑️ Request"}
+                    </button>
+                  )
+                )}
+              </div>
             </div>
             {b.type === "Studio Session" && b.editedDeliveryDate && (
               <div style={{ color: "#6e9bc8", fontSize: 12, marginBottom: 10 }}>🖼️ Edited delivery: {b.editedDeliveryDate}</div>
@@ -898,6 +934,7 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false }) => {
   const [refundAmount, setRefundAmount] = useState("");
   const [refundNote, setRefundNote] = useState("");
   const [form, setForm] = useState({ client: "", size: "A4", description: "", quantity: "1", costPrice: "", unitPrice: "", paid: "" });
+  const [editId, setEditId] = useState(null);
 
   const sizes = ["A6", "A5", "A4", "A3", "A2", "A1", "20x30cm", "30x40cm", "40x60cm", "60x90cm", "Custom"];
 
@@ -908,8 +945,13 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false }) => {
     const costPrice = Number(form.costPrice) || 0;
     const total = quantity * unitPrice;
     const paid = Math.min(Number(form.paid) || 0, total);
-    setFrames(prev => [...prev, { id: Date.now(), ...form, quantity, unitPrice, costPrice, total, paid, date: new Date().toISOString().split("T")[0] }]);
-    setForm({ client: "", size: "A4", description: "", quantity: "1", unitPrice: "", paid: "" });
+    if (editId) {
+      setFrames(prev => prev.map(f => f.id === editId ? { ...f, ...form, quantity, unitPrice, costPrice, total } : f));
+      setEditId(null);
+    } else {
+      setFrames(prev => [...prev, { id: Date.now(), ...form, quantity, unitPrice, costPrice, total, paid, date: new Date().toISOString().split("T")[0], completed: false }]);
+    }
+    setForm({ client: "", size: "A4", description: "", quantity: "1", costPrice: "", unitPrice: "", paid: "" });
     setShowForm(false);
   };
 
@@ -925,11 +967,8 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false }) => {
     setAddPaymentId(null);
   };
 
-  const deleteFrame = (id) => {
-    if (window.confirm("Delete this frame sale?")) {
-      setFrames(prev => prev.filter(f => f.id !== id));
-    }
-  };
+  const [confirmDeleteFrameId, setConfirmDeleteFrameId] = useState(null);
+  const deleteFrame = (id) => { setConfirmDeleteFrameId(id); };
 
   const totalRevenue = frames.reduce((s, f) => s + f.paid, 0);
   const totalOutstanding = frames.reduce((s, f) => s + ((f.quantity * f.unitPrice) - f.paid), 0);
@@ -942,9 +981,9 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false }) => {
         </div>
       )}
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
-        {canEdit && (
-          <button onClick={() => setShowForm(!showForm)} style={{ background: COLORS.accent, color: "#000", border: "none", borderRadius: 20, padding: "6px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-            {showForm ? "Cancel" : "+ Sell"}
+        {canEdit && !showForm && (
+          <button onClick={() => setShowForm(true)} style={{ background: COLORS.accent, color: "#000", border: "none", borderRadius: 20, padding: "6px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+            + Sell
           </button>
         )}
       </div>
@@ -965,7 +1004,8 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false }) => {
 
       {canEdit && showForm && (
         <Card style={{ borderColor: COLORS.accent }}>
-          <BackButton onClick={() => setShowForm(false)} />
+          <BackButton onClick={() => { setShowForm(false); setEditId(null); setForm({ client: "", size: "A4", description: "", quantity: "1", costPrice: "", unitPrice: "", paid: "" }); }} />
+          <div style={{ color: COLORS.accent, fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>{editId ? "EDIT FRAME SALE" : "NEW FRAME SALE"}</div>
           <ClientSelect value={form.client} onChange={val => setForm(p => ({ ...p, client: val }))} clients={clients} />
           <select value={form.size} onChange={e => setForm(p => ({ ...p, size: e.target.value }))}
             style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "10px 12px", color: COLORS.text, fontSize: 14, marginBottom: 8 }}>
@@ -1005,14 +1045,14 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false }) => {
             )}
           </div>
           <button onClick={addFrame} style={{ width: "100%", background: COLORS.accent, color: "#000", border: "none", borderRadius: 8, padding: 12, fontWeight: 700, cursor: "pointer" }}>
-            Save Sale
+            {editId ? "Update Frame" : "Save Sale"}
           </button>
         </Card>
       )}
 
-      {frames.length === 0 && <Card><div style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", padding: 10 }}>No frame sales yet</div></Card>}
+      {frames.filter(f => !f.completed).length === 0 && frames.length === 0 && <Card><div style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", padding: 10 }}>No frame sales yet</div></Card>}
 
-      {frames.map(f => {
+      {frames.filter(f => !f.completed).map(f => {
         const total = f.quantity * f.unitPrice;
         const rest = total - f.paid;
         const pct = total > 0 ? (f.paid / total) * 100 : 0;
@@ -1024,7 +1064,13 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false }) => {
                 {rest === 0 ? "✅ Paid" : "⏳ Pending"}
               </span>
             </div>
-            <div style={{ color: COLORS.accent, fontSize: 12, marginBottom: 3 }}>🖼️ {f.size} {f.description ? `· ${f.description}` : ""}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ color: COLORS.accent, fontSize: 12, marginBottom: 3 }}>🖼️ {f.size} {f.description ? `· ${f.description}` : ""}</div>
+              {canEdit && (
+                <button onClick={() => { setForm({ client: f.client, size: f.size, description: f.description, quantity: f.quantity, costPrice: f.costPrice || "", unitPrice: f.unitPrice, paid: f.paid }); setEditId(f.id); setShowForm(true); }}
+                  style={{ background: "none", border: "none", color: COLORS.accent, fontSize: 11, cursor: "pointer", padding: 0 }}>✏️ Edit</button>
+              )}
+            </div>
             <div style={{ color: COLORS.muted, fontSize: 12, marginBottom: 6 }}>📅 {f.date} · Qty: {f.quantity} × {formatRWF(f.unitPrice)}</div>
             {f.costPrice > 0 && (
               <div style={{ background: "#0d2b1a", borderRadius: 8, padding: "8px 10px", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1072,14 +1118,59 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false }) => {
                 </button>
               )
             )}
-            {role === "manager" && (
-              <button onClick={() => deleteFrame(f.id)} style={{ background: "none", border: "none", color: COLORS.danger, fontSize: 11, cursor: "pointer", padding: 0 }}>
-                🗑️ Delete
+            {canEdit && f.paid >= (f.quantity * f.unitPrice) && !f.completed && (
+              <button onClick={() => setFrames(prev => prev.map(x => x.id === f.id ? { ...x, completed: true } : x))}
+                style={{ width: "100%", background: COLORS.success, border: "none", borderRadius: 8, padding: 8, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>
+                ✅ Mark as Complete
               </button>
+            )}
+            {f.completed && (
+              <div style={{ textAlign: "center", background: "#0d2b1a", borderRadius: 8, padding: "8px 0", color: COLORS.success, fontWeight: 700, fontSize: 14, letterSpacing: 1, marginBottom: 8 }}>
+                ✅ COMPLETED
+              </div>
+            )}
+            {role === "manager" && (
+              confirmDeleteFrameId === f.id ? (
+                <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                  <button onClick={() => { setFrames(prev => prev.filter(x => x.id !== f.id)); setConfirmDeleteFrameId(null); }}
+                    style={{ flex: 1, background: COLORS.danger, color: "#fff", border: "none", borderRadius: 8, padding: "8px 0", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                    ✅ Confirm Delete
+                  </button>
+                  <button onClick={() => setConfirmDeleteFrameId(null)}
+                    style={{ flex: 1, background: COLORS.border, color: COLORS.muted, border: "none", borderRadius: 8, padding: "8px 0", fontSize: 13, cursor: "pointer" }}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmDeleteFrameId(f.id)} style={{ background: "none", border: "none", color: COLORS.danger, fontSize: 11, cursor: "pointer", padding: "4px 0" }}>
+                  🗑️ Delete
+                </button>
+              )
             )}
           </Card>
         );
       })}
+      {/* Completed Frames */}
+      {frames.filter(f => f.completed).length > 0 && (
+        <>
+          <h3 style={{ color: COLORS.muted, fontSize: 11, letterSpacing: 1.5, margin: "16px 0 10px", textTransform: "uppercase" }}>✅ Completed</h3>
+          {frames.filter(f => f.completed).map(f => (
+            <Card key={f.id} style={{ borderLeft: `3px solid ${COLORS.success}`, opacity: 0.8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ color: COLORS.text, fontWeight: 600 }}>{f.client}</div>
+                  <div style={{ color: COLORS.accent, fontSize: 12, marginTop: 2 }}>🖼️ {f.size} {f.description ? `· ${f.description}` : ""}</div>
+                  <div style={{ color: COLORS.muted, fontSize: 12 }}>Qty: {f.quantity} × {formatRWF(f.unitPrice)}</div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ color: COLORS.success, fontWeight: 700 }}>{formatRWF(f.quantity * f.unitPrice)}</div>
+                  <div style={{ color: COLORS.success, fontSize: 11, marginTop: 4 }}>✅ Done</div>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </>
+      )}
     </div>
   );
 };
@@ -1094,13 +1185,19 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
   const [refundAmount, setRefundAmount] = useState("");
   const [refundNote, setRefundNote] = useState("");
   const [form, setForm] = useState({ client: "", items: "", from: "", to: "", days: "", pricePerDay: "" });
+  const [editId, setEditId] = useState(null);
 
   const addRental = () => {
     if (!form.client || !form.items) return;
     const days = Number(form.days) || 1;
     const pricePerDay = Number(form.pricePerDay) || 0;
     const amount = days * pricePerDay;
-    setRentals(prev => [...prev, { id: Date.now(), ...form, days, pricePerDay, amount, paid: 0, returned: false }]);
+    if (editId) {
+      setRentals(prev => prev.map(r => r.id === editId ? { ...r, ...form, days, pricePerDay, amount } : r));
+      setEditId(null);
+    } else {
+      setRentals(prev => [...prev, { id: Date.now(), ...form, days, pricePerDay, amount, paid: 0, returned: false }]);
+    }
     setForm({ client: "", items: "", from: "", to: "", days: "", pricePerDay: "" });
     setShowForm(false);
   };
@@ -1120,8 +1217,9 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
     setRentals(prev => prev.map(r => r.id === id ? { ...r, returned: true } : r));
   };
 
-  const active = rentals.filter(r => !(r.returned && r.paid >= r.amount));
-  const returned = rentals.filter(r => r.returned && r.paid >= r.amount);
+  const active = rentals.filter(r => !r.returned);
+  const pendingPayment = rentals.filter(r => r.returned && r.paid < r.amount);
+  const completed = rentals.filter(r => r.returned && r.paid >= r.amount);
   const totalIncome = rentals.reduce((s, r) => s + r.paid, 0);
   const totalOutstanding = rentals.reduce((s, r) => s + (r.amount - r.paid), 0);
 
@@ -1209,7 +1307,13 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
                  "📤 Out · Deposit Paid"}
               </span>
             </div>
-            <div style={{ color: COLORS.accent, fontSize: 12, marginBottom: 3 }}>📷 {r.items}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+              <div style={{ color: COLORS.accent, fontSize: 12 }}>📷 {r.items}</div>
+              {canEdit && (
+                <button onClick={() => { setForm({ client: r.client, items: r.items, from: r.from, to: r.to, days: r.days || "", pricePerDay: r.pricePerDay || "" }); setEditId(r.id); setShowForm(true); }}
+                  style={{ background: "none", border: `1px solid ${COLORS.accent}`, borderRadius: 8, color: COLORS.accent, fontSize: 11, cursor: "pointer", padding: "3px 10px", fontWeight: 600 }}>✏️ Edit</button>
+              )}
+            </div>
             <div style={{ color: COLORS.muted, fontSize: 12, marginBottom: 3 }}>📅 {r.from} → {r.to}</div>
             <div style={{ color: COLORS.accent, fontSize: 12, marginBottom: 10 }}>⏱️ {r.days || 1} day{(r.days || 1) > 1 ? "s" : ""} × {formatRWF(r.pricePerDay || r.amount)}</div>
 
@@ -1288,12 +1392,53 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
         );
       })}
 
-      {/* Returned & settled */}
-      {returned.length > 0 && (
+      {/* Returned but balance still owed */}
+      {pendingPayment.length > 0 && (
         <>
-          <h3 style={{ color: COLORS.muted, fontSize: 11, letterSpacing: 1.5, margin: "16px 0 10px", textTransform: "uppercase" }}>Returned & Settled</h3>
-          {returned.map(r => (
-            <Card key={r.id} style={{ borderLeft: `3px solid ${COLORS.success}`, opacity: 0.7 }}>
+          <h3 style={{ color: COLORS.accent, fontSize: 11, letterSpacing: 1.5, margin: "16px 0 10px", textTransform: "uppercase" }}>📦 Returned · Balance Owed</h3>
+          {pendingPayment.map(r => {
+            const rest = r.amount - r.paid;
+            return (
+              <Card key={r.id} style={{ borderLeft: `3px solid ${COLORS.accent}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                  <div>
+                    <div style={{ color: COLORS.text, fontWeight: 600 }}>{r.client}</div>
+                    <div style={{ color: COLORS.accent, fontSize: 12, marginTop: 2 }}>📷 {r.items}</div>
+                    <div style={{ color: COLORS.muted, fontSize: 12 }}>📅 {r.from} → {r.to}</div>
+                    <div style={{ color: COLORS.accent, fontSize: 12 }}>⏱️ {r.days || 1} day{(r.days||1)>1?"s":""} × {formatRWF(r.pricePerDay||r.amount)}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ color: COLORS.danger, fontWeight: 700 }}>Owes {formatRWF(rest)}</div>
+                    <div style={{ color: COLORS.success, fontSize: 12 }}>Paid {formatRWF(r.paid)}</div>
+                  </div>
+                </div>
+                {canEdit && (
+                  addPaymentId === r.id ? (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input type="number" placeholder={`Max ${formatRWF(rest)}`} value={extraPayment}
+                        onChange={e => setExtraPayment(e.target.value)}
+                        style={{ flex: 1, background: COLORS.bg, border: `1px solid ${COLORS.accent}`, borderRadius: 8, padding: "8px 10px", color: COLORS.text, fontSize: 13 }} />
+                      <button onClick={() => applyPayment(r.id)} style={{ background: COLORS.success, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, cursor: "pointer" }}>Add</button>
+                      <button onClick={() => setAddPaymentId(null)} style={{ background: COLORS.border, color: COLORS.muted, border: "none", borderRadius: 8, padding: "8px 10px", cursor: "pointer" }}>✕</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setAddPaymentId(r.id)} style={{ width: "100%", background: "transparent", border: `1px solid ${COLORS.success}`, borderRadius: 8, padding: 8, color: COLORS.success, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                      💰 Collect Balance Payment
+                    </button>
+                  )
+                )}
+              </Card>
+            );
+          })}
+        </>
+      )}
+
+      {/* Completed rentals */}
+      {completed.length > 0 && (
+        <>
+          <h3 style={{ color: COLORS.muted, fontSize: 11, letterSpacing: 1.5, margin: "16px 0 10px", textTransform: "uppercase" }}>✅ Completed</h3>
+          {completed.map(r => (
+            <Card key={r.id} style={{ borderLeft: `3px solid ${COLORS.success}`, opacity: 0.8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <div style={{ color: COLORS.text, fontWeight: 600 }}>{r.client}</div>
@@ -1302,8 +1447,8 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
                   <div style={{ color: COLORS.muted, fontSize: 12 }}>⏱️ {r.days || 1} day{(r.days||1)>1?"s":""} × {formatRWF(r.pricePerDay||r.amount)}</div>
                 </div>
                 <div style={{ textAlign: "right" }}>
-                  <div style={{ color: COLORS.success, fontWeight: 700 }}>{formatRWF(r.amount)}</div>
-                  <div style={{ color: COLORS.success, fontSize: 11, marginTop: 4 }}>✅ Done</div>
+                  <div style={{ color: COLORS.success, fontWeight: 700, fontSize: 15 }}>{formatRWF(r.amount)}</div>
+                  <div style={{ background: "#1a3a2a", color: COLORS.success, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 600, marginTop: 4 }}>✅ Done</div>
                 </div>
               </div>
             </Card>
@@ -1519,8 +1664,225 @@ const StaffPayments = ({ staffPayments, setStaffPayments }) => {
   );
 };
 
+
+// ── STUDIO SESSIONS ────────────────────────────────────────
+const StudioSessions = ({ sessions, setSessions, clients, role }) => {
+  const canEdit = role === "manager" || role === "alain" || role === "max";
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [addPaymentId, setAddPaymentId] = useState(null);
+  const [extraPayment, setExtraPayment] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [form, setForm] = useState({ client: "", sessionType: "Indoor Session", numPictures: "", unitPrice: "", paid: "", deliveryDate: "" });
+
+  const addSession = () => {
+    if (!form.client || !form.numPictures || !form.unitPrice) return;
+    const numPictures = Number(form.numPictures) || 0;
+    const unitPrice = Number(form.unitPrice) || 0;
+    const amount = numPictures * unitPrice;
+    const paid = Math.min(Number(form.paid) || 0, amount);
+    if (editId) {
+      setSessions(prev => prev.map(s => s.id === editId ? { ...s, ...form, numPictures, unitPrice, amount } : s));
+      setEditId(null);
+    } else {
+      setSessions(prev => [...prev, { id: Date.now(), ...form, numPictures, unitPrice, amount, paid, date: new Date().toISOString().split("T")[0], completed: false }]);
+    }
+    setForm({ client: "", sessionType: "Indoor Session", numPictures: "", unitPrice: "", paid: "", deliveryDate: "" });
+    setShowForm(false);
+  };
+
+  const applyPayment = (id) => {
+    const extra = Number(extraPayment) || 0;
+    if (!extra) return;
+    setSessions(prev => prev.map(s => {
+      if (s.id !== id) return s;
+      return { ...s, paid: Math.min(s.paid + extra, s.amount) };
+    }));
+    setExtraPayment("");
+    setAddPaymentId(null);
+  };
+
+  const totalRevenue = sessions.reduce((s, x) => s + x.paid, 0);
+  const totalOutstanding = sessions.reduce((s, x) => s + (x.amount - x.paid), 0);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+        {canEdit && !showForm && (
+          <button onClick={() => setShowForm(true)} style={{ background: COLORS.accent, color: "#000", border: "none", borderRadius: 20, padding: "6px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+            + New Session
+          </button>
+        )}
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+        <Card style={{ padding: 14 }}>
+          <div style={{ fontSize: 18, marginBottom: 4 }}>💰</div>
+          <div style={{ color: COLORS.success, fontSize: 18, fontWeight: 700 }}>{formatRWF(totalRevenue)}</div>
+          <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>Collected</div>
+        </Card>
+        <Card style={{ padding: 14 }}>
+          <div style={{ fontSize: 18, marginBottom: 4 }}>⏳</div>
+          <div style={{ color: COLORS.danger, fontSize: 18, fontWeight: 700 }}>{formatRWF(totalOutstanding)}</div>
+          <div style={{ color: COLORS.muted, fontSize: 11, marginTop: 2 }}>Outstanding</div>
+        </Card>
+      </div>
+
+      {canEdit && showForm && (
+        <Card style={{ borderColor: COLORS.accent }}>
+          <BackButton onClick={() => { setShowForm(false); setEditId(null); setForm({ client: "", sessionType: "Indoor Session", numPictures: "", unitPrice: "", paid: "", deliveryDate: "" }); }} />
+          <div style={{ color: COLORS.accent, fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>{editId ? "EDIT SESSION" : "NEW STUDIO SESSION"}</div>
+          <ClientSelect value={form.client} onChange={val => setForm(p => ({ ...p, client: val }))} clients={clients} />
+          <select value={form.sessionType} onChange={e => setForm(p => ({ ...p, sessionType: e.target.value }))}
+            style={{ width: "100%", background: COLORS.bg, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "10px 12px", color: COLORS.text, fontSize: 14, marginBottom: 8 }}>
+            <option>Indoor Session</option>
+            <option>Outdoor Session</option>
+          </select>
+          <div style={{ background: COLORS.bg, borderRadius: 8, padding: 12, marginBottom: 8, border: `1px solid ${COLORS.border}` }}>
+            <div style={{ color: COLORS.accent, fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>PRICING</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+              <input type="number" placeholder="No. of Pictures" value={form.numPictures}
+                onChange={e => setForm(p => ({ ...p, numPictures: e.target.value }))}
+                style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "10px 12px", color: COLORS.text, fontSize: 14 }} />
+              <input type="number" placeholder="Price / Picture" value={form.unitPrice}
+                onChange={e => setForm(p => ({ ...p, unitPrice: e.target.value }))}
+                style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: "10px 12px", color: COLORS.text, fontSize: 14 }} />
+            </div>
+            {form.numPictures && form.unitPrice && (
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ color: COLORS.muted, fontSize: 12 }}>Total</span>
+                <span style={{ color: COLORS.text, fontWeight: 700 }}>{formatRWF(Number(form.numPictures) * Number(form.unitPrice))}</span>
+              </div>
+            )}
+            <div style={{ color: COLORS.accent, fontSize: 11, fontWeight: 700, letterSpacing: 1, margin: "8px 0" }}>PAYMENT</div>
+            <InputField placeholder="Amount Paid (RWF)" type="number" value={form.paid} onChange={e => setForm(p => ({ ...p, paid: e.target.value }))} />
+            {form.numPictures && form.unitPrice && (
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: COLORS.muted, fontSize: 12 }}>Balance</span>
+                <span style={{ color: COLORS.danger, fontSize: 13, fontWeight: 700 }}>{formatRWF(Math.max(0, Number(form.numPictures) * Number(form.unitPrice) - Number(form.paid || 0)))}</span>
+              </div>
+            )}
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ color: COLORS.muted, fontSize: 11, letterSpacing: 1, marginBottom: 6 }}>EDITED PICTURES DELIVERY DATE</div>
+            <InputField placeholder="Delivery Date" type="date" value={form.deliveryDate} onChange={e => setForm(p => ({ ...p, deliveryDate: e.target.value }))} />
+          </div>
+          <button onClick={addSession} style={{ width: "100%", background: COLORS.accent, color: "#000", border: "none", borderRadius: 8, padding: 12, fontWeight: 700, cursor: "pointer" }}>
+            {editId ? "Update Session" : "Save Session"}
+          </button>
+        </Card>
+      )}
+
+      {sessions.filter(s => !s.completed).length === 0 && sessions.length === 0 && <Card><div style={{ color: COLORS.muted, fontSize: 13, textAlign: "center", padding: 10 }}>No studio sessions yet</div></Card>}
+
+      {sessions.filter(s => !s.completed).map(s => {
+        const rest = s.amount - s.paid;
+        const pct = s.amount > 0 ? (s.paid / s.amount) * 100 : 0;
+        return (
+          <Card key={s.id} style={{ borderLeft: `3px solid ${rest === 0 ? COLORS.success : COLORS.accent}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+              <div style={{ color: COLORS.text, fontWeight: 600, fontSize: 15 }}>{s.client}</div>
+              <span style={{ background: rest === 0 ? "#1a3a2a" : "#3a2a10", color: rest === 0 ? COLORS.success : COLORS.accent, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 600 }}>
+                {rest === 0 ? "✅ Paid" : "⏳ Pending"}
+              </span>
+            </div>
+            <div style={{ color: COLORS.accent, fontSize: 12, marginBottom: 3 }}>📷 {s.sessionType}</div>
+            <div style={{ color: COLORS.muted, fontSize: 12, marginBottom: 3 }}>🖼️ {s.numPictures} pics × {formatRWF(s.unitPrice)}</div>
+            {s.deliveryDate && <div style={{ color: "#6e9bc8", fontSize: 12, marginBottom: 10 }}>📅 Delivery: {s.deliveryDate}</div>}
+
+            <div style={{ background: COLORS.bg, borderRadius: 8, padding: 10, marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                <span style={{ color: COLORS.muted, fontSize: 12 }}>💵 Total</span>
+                <span style={{ color: COLORS.text, fontSize: 12, fontWeight: 700 }}>{formatRWF(s.amount)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5 }}>
+                <span style={{ color: COLORS.muted, fontSize: 12 }}>✅ Paid</span>
+                <span style={{ color: COLORS.success, fontSize: 12, fontWeight: 700 }}>{formatRWF(s.paid)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <span style={{ color: COLORS.muted, fontSize: 12 }}>⏳ Balance</span>
+                <span style={{ color: rest > 0 ? COLORS.danger : COLORS.success, fontSize: 12, fontWeight: 700 }}>{formatRWF(rest)}</span>
+              </div>
+              <div style={{ background: COLORS.border, borderRadius: 4, height: 5 }}>
+                <div style={{ background: pct >= 100 ? COLORS.success : COLORS.accent, borderRadius: 4, height: 5, width: `${Math.min(pct, 100)}%` }} />
+              </div>
+            </div>
+
+            {canEdit && rest > 0 && (
+              addPaymentId === s.id ? (
+                <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                  <input type="number" placeholder={`Max ${formatRWF(rest)}`} value={extraPayment}
+                    onChange={e => setExtraPayment(e.target.value)}
+                    style={{ flex: 1, background: COLORS.bg, border: `1px solid ${COLORS.accent}`, borderRadius: 8, padding: "8px 10px", color: COLORS.text, fontSize: 13 }} />
+                  <button onClick={() => applyPayment(s.id)} style={{ background: COLORS.success, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, cursor: "pointer" }}>Add</button>
+                  <button onClick={() => setAddPaymentId(null)} style={{ background: COLORS.border, color: COLORS.muted, border: "none", borderRadius: 8, padding: "8px 10px", cursor: "pointer" }}>✕</button>
+                </div>
+              ) : (
+                <button onClick={() => setAddPaymentId(s.id)} style={{ width: "100%", background: "transparent", border: `1px solid ${COLORS.success}`, borderRadius: 8, padding: 8, color: COLORS.success, fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>
+                  + Add Payment
+                </button>
+              )
+            )}
+            {canEdit && s.paid >= s.amount && s.amount > 0 && !s.completed && (
+              <button onClick={() => setSessions(prev => prev.map(x => x.id === s.id ? { ...x, completed: true } : x))}
+                style={{ width: "100%", background: COLORS.success, border: "none", borderRadius: 8, padding: 8, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>
+                ✅ Mark as Complete
+              </button>
+            )}
+            {s.completed && (
+              <div style={{ textAlign: "center", background: "#0d2b1a", borderRadius: 8, padding: "8px 0", color: COLORS.success, fontWeight: 700, fontSize: 14, letterSpacing: 1, marginBottom: 8 }}>
+                ✅ COMPLETED
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              {canEdit && (
+                <button onClick={() => { setForm({ client: s.client, sessionType: s.sessionType, numPictures: s.numPictures, unitPrice: s.unitPrice, paid: s.paid, deliveryDate: s.deliveryDate || "" }); setEditId(s.id); setShowForm(true); }}
+                  style={{ background: "none", border: "none", color: COLORS.accent, fontSize: 11, cursor: "pointer", padding: 0 }}>✏️ Edit</button>
+              )}
+              {role === "manager" && (
+                confirmDeleteId === s.id ? (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => { setSessions(prev => prev.filter(x => x.id !== s.id)); setConfirmDeleteId(null); }}
+                      style={{ background: COLORS.danger, color: "#fff", border: "none", borderRadius: 6, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>Confirm</button>
+                    <button onClick={() => setConfirmDeleteId(null)}
+                      style={{ background: COLORS.border, color: COLORS.muted, border: "none", borderRadius: 6, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>Cancel</button>
+                  </div>
+                ) : (
+                  <button onClick={() => setConfirmDeleteId(s.id)} style={{ background: "none", border: "none", color: COLORS.danger, fontSize: 11, cursor: "pointer", padding: 0 }}>🗑️ Delete</button>
+                )
+              )}
+            </div>
+          </Card>
+        );
+      })}
+      {/* Completed Studio Sessions */}
+      {sessions.filter(s => s.completed).length > 0 && (
+        <>
+          <h3 style={{ color: COLORS.muted, fontSize: 11, letterSpacing: 1.5, margin: "16px 0 10px", textTransform: "uppercase" }}>✅ Completed</h3>
+          {sessions.filter(s => s.completed).map(s => (
+            <Card key={s.id} style={{ borderLeft: `3px solid ${COLORS.success}`, opacity: 0.8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ color: COLORS.text, fontWeight: 600 }}>{s.client}</div>
+                  <div style={{ color: COLORS.accent, fontSize: 12, marginTop: 2 }}>📷 {s.sessionType}</div>
+                  <div style={{ color: COLORS.muted, fontSize: 12 }}>🖼️ {s.numPictures} pics × {formatRWF(s.unitPrice)}</div>
+                  {s.deliveryDate && <div style={{ color: "#6e9bc8", fontSize: 12 }}>📅 Delivered: {s.deliveryDate}</div>}
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ color: COLORS.success, fontWeight: 700 }}>{formatRWF(s.amount)}</div>
+                  <div style={{ color: COLORS.success, fontSize: 11, marginTop: 4 }}>✅ Done</div>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </>
+      )}
+    </div>
+  );
+};
+
 // ── SHOP ───────────────────────────────────────────────────
-const Shop = ({ rentals, setRentals, frames, setFrames, clients, role }) => {
+const Shop = ({ rentals, setRentals, frames, setFrames, studioSessions, setStudioSessions, clients, role }) => {
   const [activeShopTab, setActiveShopTab] = useState("rentals");
 
   return (
@@ -1528,7 +1890,7 @@ const Shop = ({ rentals, setRentals, frames, setFrames, clients, role }) => {
       <h3 style={{ color: COLORS.text, margin: "0 0 16px", fontSize: 18, fontFamily: "'Century Gothic', 'CenturyGothic', 'AppleGothic', sans-serif", letterSpacing: 2 }}>Shop</h3>
       {/* Inner tab switcher */}
       <div style={{ display: "flex", background: COLORS.card, borderRadius: 12, padding: 4, marginBottom: 16, border: `1px solid ${COLORS.border}` }}>
-        {[{ id: "rentals", label: "🎥 Rentals" }, { id: "frames", label: "🖼️ Frames" }].map(t => (
+        {[{ id: "rentals", label: "🎥 Rentals" }, { id: "frames", label: "🖼️ Frames" }, { id: "studio", label: "📷 Studio" }].map(t => (
           <button key={t.id} onClick={() => setActiveShopTab(t.id)}
             style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13,
               background: activeShopTab === t.id ? COLORS.accent : "transparent",
@@ -1539,6 +1901,7 @@ const Shop = ({ rentals, setRentals, frames, setFrames, clients, role }) => {
       </div>
       {activeShopTab === "rentals" && <Rentals rentals={rentals} setRentals={setRentals} clients={clients} role={role} hideTitle />}
       {activeShopTab === "frames" && <Frames frames={frames} setFrames={setFrames} clients={clients} role={role} hideTitle />}
+      {activeShopTab === "studio" && <StudioSessions sessions={studioSessions} setSessions={setStudioSessions} clients={clients} role={role} />}
     </div>
   );
 };
@@ -1682,6 +2045,7 @@ export default function App() {
   const [expenses, setExpenses] = useState(initialExpenses);
   const [rentals, setRentals] = useState(initialRentals);
   const [frames, setFrames] = useState(initialFrames);
+  const [studioSessions, setStudioSessions] = useState(initialStudioSessions);
   const [staffPayments, setStaffPayments] = useState(initialStaffPayments);
   const [managerExpenses, setManagerExpenses] = useState(initialManagerExpenses);
 
@@ -1725,11 +2089,11 @@ export default function App() {
 
       {/* Content */}
       <div style={{ padding: "20px 16px 90px" }}>
-        {tab === "home" && role === "manager" && <Dashboard bookings={bookings} clients={clients} expenses={expenses} rentals={rentals} frames={frames} staffPayments={staffPayments} managerExpenses={managerExpenses} role={role} />}
+        {tab === "home" && role === "manager" && <Dashboard bookings={bookings} clients={clients} expenses={expenses} rentals={rentals} frames={frames} studioSessions={studioSessions} staffPayments={staffPayments} managerExpenses={managerExpenses} role={role} />}
         {tab === "clients" && <Clients clients={clients} setClients={setClients} role={role} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} />}
         {tab === "bookings" && <Bookings bookings={bookings} setBookings={setBookings} clients={clients} role={role} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} />}
         {tab === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} managerExpenses={managerExpenses} setManagerExpenses={setManagerExpenses} staffPayments={staffPayments} setStaffPayments={setStaffPayments} role={role} />}
-        {tab === "shop" && <Shop rentals={rentals} setRentals={setRentals} frames={frames} setFrames={setFrames} clients={clients} role={role} />}
+        {tab === "shop" && <Shop rentals={rentals} setRentals={setRentals} frames={frames} setFrames={setFrames} studioSessions={studioSessions} setStudioSessions={setStudioSessions} clients={clients} role={role} />}
         {tab === "settings" && <Settings pins={pins} setPins={setPins} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} setClients={setClients} setBookings={setBookings} clients={clients} bookings={bookings} />}
         {tab === "completed" && <Completed bookings={bookings} setBookings={setBookings} role={role} />}
       </div>
