@@ -1109,7 +1109,7 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
     setRentals(prev => prev.map(r => r.id === id ? { ...r, returned: true } : r));
   };
 
-  const active = rentals.filter(r => !r.returned || r.paid < r.amount);
+  const active = rentals.filter(r => !(r.returned && r.paid >= r.amount));
   const returned = rentals.filter(r => r.returned && r.paid >= r.amount);
   const totalIncome = rentals.reduce((s, r) => s + r.paid, 0);
   const totalOutstanding = rentals.reduce((s, r) => s + (r.amount - r.paid), 0);
@@ -1193,8 +1193,15 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
           <Card key={r.id} style={{ borderLeft: `3px solid ${COLORS.accent}` }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
               <div style={{ color: COLORS.text, fontWeight: 600 }}>{r.client}</div>
-              <span style={{ background: r.returned ? "#1a3a2a" : "#3a2a10", color: r.returned ? COLORS.success : COLORS.accent, borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 600 }}>
-                {r.returned ? "Returned" : "Out"}
+              <span style={{
+                background: r.returned && r.paid >= r.amount ? "#1a3a2a" : r.paid >= r.amount && !r.returned ? "#1a2a3a" : r.returned && r.paid < r.amount ? "#2b1a0d" : "#3a2a10",
+                color: r.returned && r.paid >= r.amount ? COLORS.success : r.paid >= r.amount && !r.returned ? "#6e9bc8" : r.returned && r.paid < r.amount ? COLORS.accent : COLORS.accent,
+                borderRadius: 20, padding: "2px 10px", fontSize: 11, fontWeight: 600
+              }}>
+                {r.returned && r.paid >= r.amount ? "✅ Done" :
+                 r.paid >= r.amount && !r.returned ? "💰 Paid · Not Returned" :
+                 r.returned && r.paid < r.amount ? "📦 Returned · Owes Balance" :
+                 "📤 Out · Deposit Paid"}
               </span>
             </div>
             <div style={{ color: COLORS.accent, fontSize: 12, marginBottom: 3 }}>📷 {r.items}</div>
@@ -1219,25 +1226,44 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
               </div>
             </div>
 
-            {canEdit && rest > 0 && (
-              addPaymentId === r.id ? (
-                <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                  <input type="number" placeholder={`Max ${formatRWF(rest)}`} value={extraPayment}
-                    onChange={e => setExtraPayment(e.target.value)}
-                    style={{ flex: 1, background: COLORS.bg, border: `1px solid ${COLORS.accent}`, borderRadius: 8, padding: "8px 10px", color: COLORS.text, fontSize: 13 }} />
-                  <button onClick={() => applyPayment(r.id)} style={{ background: COLORS.success, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, cursor: "pointer" }}>Add</button>
-                  <button onClick={() => setAddPaymentId(null)} style={{ background: COLORS.border, color: COLORS.muted, border: "none", borderRadius: 8, padding: "8px 10px", cursor: "pointer" }}>✕</button>
-                </div>
-              ) : (
-                <button onClick={() => setAddPaymentId(r.id)} style={{ width: "100%", background: "transparent", border: `1px solid ${COLORS.success}`, borderRadius: 8, padding: 8, color: COLORS.success, fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>
-                  + Add Payment
-                </button>
-              )
-            )}
-            {canEdit && !r.returned && (
-              <button onClick={() => markReturned(r.id)} style={{ width: "100%", background: "transparent", border: `1px solid ${COLORS.accent}`, borderRadius: 8, padding: 8, color: COLORS.accent, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                📦 Mark as Returned
-              </button>
+            {canEdit && (
+              <div style={{ marginTop: 4 }}>
+                {/* Add payment button — always visible if balance remains */}
+                {rest > 0 && (
+                  addPaymentId === r.id ? (
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ color: COLORS.muted, fontSize: 11, letterSpacing: 1, marginBottom: 6 }}>
+                        {r.returned ? "💰 PAY REMAINING BALANCE" : "💰 ADD PAYMENT (deposit or partial)"}
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input type="number" placeholder={`Max ${formatRWF(rest)}`} value={extraPayment}
+                          onChange={e => setExtraPayment(e.target.value)}
+                          style={{ flex: 1, background: COLORS.bg, border: `1px solid ${COLORS.accent}`, borderRadius: 8, padding: "8px 10px", color: COLORS.text, fontSize: 13 }} />
+                        <button onClick={() => applyPayment(r.id)} style={{ background: COLORS.success, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, cursor: "pointer" }}>Add</button>
+                        <button onClick={() => setAddPaymentId(null)} style={{ background: COLORS.border, color: COLORS.muted, border: "none", borderRadius: 8, padding: "8px 10px", cursor: "pointer" }}>✕</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => setAddPaymentId(r.id)} style={{ width: "100%", background: "transparent", border: `1px solid ${COLORS.success}`, borderRadius: 8, padding: 8, color: COLORS.success, fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>
+                      💰 {r.returned ? "Pay Balance on Return" : "Add Deposit / Payment"}
+                    </button>
+                  )
+                )}
+
+                {/* Mark as returned — only if not yet returned */}
+                {!r.returned && (
+                  <button onClick={() => markReturned(r.id)} style={{ width: "100%", background: "transparent", border: `1px solid ${COLORS.accent}`, borderRadius: 8, padding: 8, color: COLORS.accent, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                    📦 Mark as Returned
+                  </button>
+                )}
+
+                {/* Status when returned but balance still owed */}
+                {r.returned && rest > 0 && (
+                  <div style={{ background: "#2b1a0d", borderRadius: 8, padding: "6px 10px", marginTop: 4 }}>
+                    <div style={{ color: COLORS.accent, fontSize: 12, fontWeight: 600 }}>📦 Returned · ⏳ Balance still owed: {formatRWF(rest)}</div>
+                  </div>
+                )}
+              </div>
             )}
           </Card>
         );
