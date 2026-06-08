@@ -2275,6 +2275,64 @@ export default function App() {
   const [staffPayments, setStaffPayments] = useState(initialStaffPayments);
   const [managerExpenses, setManagerExpenses] = useState(initialManagerExpenses);
 
+  // Load all data from Supabase on mount
+  useEffect(() => {
+    const loadAll = async () => {
+      try {
+        const [
+          clientsData,
+          bookingsData,
+          expensesData,
+          rentalsData,
+          framesData,
+          studioData,
+          staffData,
+          managerExpData,
+        ] = await Promise.all([
+          supabase.getAll("clients"),
+          supabase.getAll("bookings"),
+          supabase.getAll("expenses"),
+          supabase.getAll("rentals"),
+          supabase.getAll("frames"),
+          supabase.getAll("studio_sessions"),
+          supabase.getAll("staff_payments"),
+          supabase.getAll("manager_expenses"),
+        ]);
+
+        if (clientsData?.length) setClients(clientsData);
+        if (bookingsData?.length) {
+          setBookings(bookingsData.map(b => ({
+            ...b,
+            refundNote: b.refund_note || "",
+            numPictures: b.num_pictures || 0,
+            unitPicPrice: b.unit_pic_price || 0,
+            editedDeliveryDate: b.edited_delivery_date || "",
+          })));
+        }
+        if (expensesData?.length) {
+          setExpenses(expensesData.map(e => ({ ...e, addedBy: e.added_by || "", staffName: e.staff_name || "" })));
+        }
+        if (rentalsData?.length) {
+          setRentals(rentalsData.map(r => ({ ...r, from: r.from_date, to: r.to_date, pricePerDay: r.price_per_day })));
+        }
+        if (framesData?.length) {
+          setFrames(framesData.map(f => ({ ...f, unitPrice: f.unit_price, costPrice: f.cost_price })));
+        }
+        if (studioData?.length) {
+          setStudioSessions(studioData.map(s => ({ ...s, sessionType: s.session_type, numPictures: s.num_pictures, unitPrice: s.unit_price, deliveryDate: s.delivery_date || "" })));
+        }
+        if (staffData?.length) setStaffPayments(staffData);
+        if (managerExpData?.length) {
+          setManagerExpenses(managerExpData.map(e => ({ ...e, addedBy: e.added_by || "manager" })));
+        }
+      } catch (err) {
+        console.error("Failed to load data from Supabase:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadAll();
+  }, []);
 
   // Sync clients to Supabase
   const saveClient = async (client) => {
