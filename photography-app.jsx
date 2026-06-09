@@ -267,13 +267,21 @@ const ExpenseList = ({ expenses, setExpenses, role, label, color = COLORS.danger
   const addExpense = async () => {
     if (!form.description || !form.amount) return;
     const status = role === "manager" ? "approved" : "pending";
-    setExpenses(prev => [...prev, { id: Date.now(), ...form, amount: Number(form.amount), date: form.date || new Date().toISOString().split("T")[0], addedBy: role, staffName: form.staffName || "", status }]);
+    const newExpense = { id: Date.now(), ...form, amount: Number(form.amount), date: form.date || new Date().toISOString().split("T")[0], addedBy: role, staffName: form.staffName || "", status };
+    setExpenses(prev => [...prev, newExpense]);
+    if (saveExpenseFn) {
+      const saved = await saveExpenseFn(newExpense);
+      if (saved && saved[0]) setExpenses(prev => prev.map(e => e.id === newExpense.id ? { ...e, id: saved[0].id } : e));
+    }
     setForm({ description: "", category: "Equipment", amount: "", date: "" });
     setShowForm(false);
   };
 
-  const deleteExpense = (id) => {
-    if (window.confirm("Delete this expense?")) setExpenses(prev => prev.filter(e => e.id !== id));
+  const deleteExpense = async (id) => {
+    if (window.confirm("Delete this expense?")) {
+      setExpenses(prev => prev.filter(e => e.id !== id));
+      if (deleteExpenseFn) await deleteExpenseFn(id);
+    }
   };
 
   const total = expenses.filter(e => !e.status || e.status === "approved").reduce((s, e) => s + e.amount, 0);
@@ -972,7 +980,7 @@ const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDel
                 {(role === "manager" || role === "alain" || role === "max") && (
                   confirmDeleteBookingId === b.id ? (
                     <div style={{ display: "flex", gap: 4 }}>
-                      <button onClick={() => { setBookings(prev => prev.filter(x => x.id !== b.id)); setConfirmDeleteBookingId(null); }}
+                      <button onClick={async () => { setBookings(prev => prev.filter(x => x.id !== b.id)); setConfirmDeleteBookingId(null); if (deleteBookingDB) await deleteBookingDB(b.id); }}
                         style={{ background: COLORS.danger, color: "#fff", border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>Confirm</button>
                       <button onClick={() => setConfirmDeleteBookingId(null)}
                         style={{ background: COLORS.border, color: COLORS.muted, border: "none", borderRadius: 6, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>Cancel</button>
@@ -1267,7 +1275,7 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false, saveFrame
             {role === "manager" && (
               confirmDeleteFrameId === f.id ? (
                 <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                  <button onClick={() => { setFrames(prev => prev.filter(x => x.id !== f.id)); setConfirmDeleteFrameId(null); }}
+                  <button onClick={async () => { setFrames(prev => prev.filter(x => x.id !== f.id)); setConfirmDeleteFrameId(null); if (deleteFrameDB) await deleteFrameDB(f.id); }}
                     style={{ flex: 1, background: COLORS.danger, color: "#fff", border: "none", borderRadius: 8, padding: "8px 0", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
                     ✅ Confirm Delete
                   </button>
@@ -1329,9 +1337,15 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
     const amount = days * pricePerDay;
     if (editId) {
       setRentals(prev => prev.map(r => r.id === editId ? { ...r, ...form, days, pricePerDay, amount } : r));
+      if (updateRentalDB) await updateRentalDB(editId, { client: form.client, items: form.items, from_date: form.from, to_date: form.to, days, price_per_day: pricePerDay, amount });
       setEditId(null);
     } else {
-      setRentals(prev => [...prev, { id: Date.now(), ...form, days, pricePerDay, amount, paid: 0, returned: false }]);
+      const newRental = { id: Date.now(), ...form, days, pricePerDay, amount, paid: 0, returned: false };
+      setRentals(prev => [...prev, newRental]);
+      if (saveRental) {
+        const saved = await saveRental(newRental);
+        if (saved && saved[0]) setRentals(prev => prev.map(r => r.id === newRental.id ? { ...r, id: saved[0].id } : r));
+      }
     }
     setForm({ client: "", items: "", from: "", to: "", days: "", pricePerDay: "" });
     setShowForm(false);
@@ -1485,9 +1499,12 @@ const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
                     <div style={{ display: "flex", gap: 8 }}>
                       <input type="number" placeholder="Enter total fee" id={`fee-${r.id}`}
                         style={{ flex: 1, background: COLORS.bg, border: `1px solid ${COLORS.accent}`, borderRadius: 8, padding: "8px 10px", color: COLORS.text, fontSize: 13 }} />
-                      <button onClick={() => {
+                      <button onClick={async () => {
                         const fee = Number(document.getElementById(`fee-${r.id}`).value) || 0;
-                        if (fee > 0) setRentals(prev => prev.map(x => x.id === r.id ? { ...x, amount: fee } : x));
+                        if (fee > 0) {
+                          setRentals(prev => prev.map(x => x.id === r.id ? { ...x, amount: fee } : x));
+                          if (updateRentalDB) await updateRentalDB(r.id, { amount: fee });
+                        }
                       }} style={{ background: COLORS.accent, color: "#000", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 700, cursor: "pointer" }}>Set</button>
                     </div>
                   </div>
@@ -1809,9 +1826,10 @@ const StaffPayments = ({ staffPayments, setStaffPayments, saveStaffPaymentFn, de
     setShowForm(false);
   };
 
-  const deletePayment = (id) => {
+  const deletePayment = async (id) => {
     if (window.confirm("Delete this payment record?")) {
       setStaffPayments(prev => prev.filter(p => p.id !== id));
+      if (deleteStaffPaymentFn) await deleteStaffPaymentFn(id);
     }
   };
 
@@ -2064,7 +2082,7 @@ const StudioSessions = ({ sessions, setSessions, clients, role, saveStudioSessio
               )
             )}
             {canEdit && s.paid >= s.amount && s.amount > 0 && !s.completed && (
-              <button onClick={() => setSessions(prev => prev.map(x => x.id === s.id ? { ...x, completed: true } : x))}
+              <button onClick={async () => { setSessions(prev => prev.map(x => x.id === s.id ? { ...x, completed: true } : x)); if (updateStudioDB) await updateStudioDB(s.id, { completed: true }); }}
                 style={{ width: "100%", background: COLORS.success, border: "none", borderRadius: 8, padding: 8, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>
                 ✅ Mark as Complete
               </button>
@@ -2082,7 +2100,7 @@ const StudioSessions = ({ sessions, setSessions, clients, role, saveStudioSessio
               {role === "manager" && (
                 confirmDeleteId === s.id ? (
                   <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => { setSessions(prev => prev.filter(x => x.id !== s.id)); setConfirmDeleteId(null); }}
+                    <button onClick={async () => { setSessions(prev => prev.filter(x => x.id !== s.id)); setConfirmDeleteId(null); if (deleteStudioDB) await deleteStudioDB(s.id); }}
                       style={{ background: COLORS.danger, color: "#fff", border: "none", borderRadius: 6, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>Confirm</button>
                     <button onClick={() => setConfirmDeleteId(null)}
                       style={{ background: COLORS.border, color: COLORS.muted, border: "none", borderRadius: 6, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>Cancel</button>
