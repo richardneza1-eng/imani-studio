@@ -825,12 +825,14 @@ const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDel
   const applyRefund = async (id) => {
     const amount = Number(refundAmount) || 0;
     if (!amount) return;
+    let newRefund = 0, newPaid = 0;
     setBookings(prev => prev.map(b => {
       if (b.id !== id) return b;
-      const newRefund = (b.refund || 0) + amount;
-      const newPaid = Math.max(0, b.paid - amount);
+      newRefund = (b.refund || 0) + amount;
+      newPaid = Math.max(0, b.paid - amount);
       return { ...b, refund: newRefund, paid: newPaid, refundNote };
     }));
+    if (updateBookingDB) await updateBookingDB(id, { refund: newRefund, paid: newPaid, refund_note: refundNote });
     setRefundAmount("");
     setRefundNote("");
     setRefundId(null);
@@ -853,14 +855,18 @@ const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDel
     }
   };
 
-  const applyExtraPayment = (id) => {
+  const applyExtraPayment = async (id) => {
     const extra = Number(extraPayment) || 0;
     if (!extra) return;
+    let newPaid = 0;
+    let newStatus = "pending";
     setBookings(prev => prev.map(b => {
       if (b.id !== id) return b;
-      const newPaid = Math.min(b.paid + extra, b.amount);
-      return { ...b, paid: newPaid, status: newPaid >= b.amount ? "confirmed" : "pending" };
+      newPaid = Math.min(b.paid + extra, b.amount);
+      newStatus = newPaid >= b.amount ? "confirmed" : "pending";
+      return { ...b, paid: newPaid, status: newStatus };
     }));
+    if (updateBookingDB) await updateBookingDB(id, { paid: newPaid, status: newStatus });
     setExtraPayment("");
     setAddPaymentId(null);
   };
@@ -1079,14 +1085,17 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false, saveFrame
     setShowForm(false);
   };
 
-  const applyPayment = (id) => {
+  const applyPayment = async (id) => {
     const extra = Number(extraPayment) || 0;
     if (!extra) return;
+    let newPaid = 0;
     setFrames(prev => prev.map(f => {
       if (f.id !== id) return f;
       const total = f.quantity * f.unitPrice;
-      return { ...f, paid: Math.min(f.paid + extra, total) };
+      newPaid = Math.min(f.paid + extra, total);
+      return { ...f, paid: newPaid };
     }));
+    if (updateFrameDB) await updateFrameDB(id, { paid: newPaid });
     setExtraPayment("");
     setAddPaymentId(null);
   };
@@ -1245,7 +1254,7 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false, saveFrame
               )
             )}
             {canEdit && f.paid >= (f.quantity * f.unitPrice) && !f.completed && (
-              <button onClick={() => setFrames(prev => prev.map(x => x.id === f.id ? { ...x, completed: true } : x))}
+              <button onClick={async () => { setFrames(prev => prev.map(x => x.id === f.id ? { ...x, completed: true } : x)); if (updateFrameDB) await updateFrameDB(f.id, { completed: true }); }}
                 style={{ width: "100%", background: COLORS.success, border: "none", borderRadius: 8, padding: 8, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", marginBottom: 8 }}>
                 ✅ Mark as Complete
               </button>
@@ -1599,13 +1608,16 @@ const CompletedCard = ({ b, setBookings, role, updateBookingDB }) => {
   const hasRefund = (b.refund || 0) > 0;
   const canAct = role === "manager" || role === "alain" || role === "max";
 
-  const applyRefund = () => {
+  const applyRefund = async () => {
     const amount = Number(refAmt) || 0;
     if (!amount || amount > b.paid) return;
+    const newRefund = (b.refund || 0) + amount;
+    const newPaid = Math.max(0, b.paid - amount);
     setBookings(prev => prev.map(x => x.id === b.id
-      ? { ...x, refund: (x.refund || 0) + amount, paid: Math.max(0, x.paid - amount), refundNote: refNote }
+      ? { ...x, refund: newRefund, paid: newPaid, refundNote: refNote }
       : x
     ));
+    if (updateBookingDB) await updateBookingDB(b.id, { refund: newRefund, paid: newPaid, refund_note: refNote });
     setRefAmt(""); setRefNote(""); setShowRefund(false);
   };
 
@@ -1914,13 +1926,16 @@ const StudioSessions = ({ sessions, setSessions, clients, role, saveStudioSessio
     setShowForm(false);
   };
 
-  const applyPayment = (id) => {
+  const applyPayment = async (id) => {
     const extra = Number(extraPayment) || 0;
     if (!extra) return;
+    let newPaid = 0;
     setSessions(prev => prev.map(s => {
       if (s.id !== id) return s;
-      return { ...s, paid: Math.min(s.paid + extra, s.amount) };
+      newPaid = Math.min(s.paid + extra, s.amount);
+      return { ...s, paid: newPaid };
     }));
+    if (updateStudioDB) await updateStudioDB(id, { paid: newPaid });
     setExtraPayment("");
     setAddPaymentId(null);
   };
@@ -2299,32 +2314,21 @@ export default function App() {
           supabase.getAll("manager_expenses"),
         ]);
 
-        if (clientsData?.length) setClients(clientsData);
-        if (bookingsData?.length) {
-          setBookings(bookingsData.map(b => ({
-            ...b,
-            refundNote: b.refund_note || "",
-            numPictures: b.num_pictures || 0,
-            unitPicPrice: b.unit_pic_price || 0,
-            editedDeliveryDate: b.edited_delivery_date || "",
-          })));
-        }
-        if (expensesData?.length) {
-          setExpenses(expensesData.map(e => ({ ...e, addedBy: e.added_by || "", staffName: e.staff_name || "" })));
-        }
-        if (rentalsData?.length) {
-          setRentals(rentalsData.map(r => ({ ...r, from: r.from_date, to: r.to_date, pricePerDay: r.price_per_day })));
-        }
-        if (framesData?.length) {
-          setFrames(framesData.map(f => ({ ...f, unitPrice: f.unit_price, costPrice: f.cost_price })));
-        }
-        if (studioData?.length) {
-          setStudioSessions(studioData.map(s => ({ ...s, sessionType: s.session_type, numPictures: s.num_pictures, unitPrice: s.unit_price, deliveryDate: s.delivery_date || "" })));
-        }
-        if (staffData?.length) setStaffPayments(staffData);
-        if (managerExpData?.length) {
-          setManagerExpenses(managerExpData.map(e => ({ ...e, addedBy: e.added_by || "manager" })));
-        }
+        // Always set state — even empty arrays — so deleted records clear on refresh
+        setClients(Array.isArray(clientsData) ? clientsData : []);
+        setBookings(Array.isArray(bookingsData) ? bookingsData.map(b => ({
+          ...b,
+          refundNote: b.refund_note || "",
+          numPictures: b.num_pictures || 0,
+          unitPicPrice: b.unit_pic_price || 0,
+          editedDeliveryDate: b.edited_delivery_date || "",
+        })) : []);
+        setExpenses(Array.isArray(expensesData) ? expensesData.map(e => ({ ...e, addedBy: e.added_by || "", staffName: e.staff_name || "" })) : []);
+        setRentals(Array.isArray(rentalsData) ? rentalsData.map(r => ({ ...r, from: r.from_date, to: r.to_date, pricePerDay: r.price_per_day })) : []);
+        setFrames(Array.isArray(framesData) ? framesData.map(f => ({ ...f, unitPrice: f.unit_price, costPrice: f.cost_price })) : []);
+        setStudioSessions(Array.isArray(studioData) ? studioData.map(s => ({ ...s, sessionType: s.session_type, numPictures: s.num_pictures, unitPrice: s.unit_price, deliveryDate: s.delivery_date || "" })) : []);
+        setStaffPayments(Array.isArray(staffData) ? staffData : []);
+        setManagerExpenses(Array.isArray(managerExpData) ? managerExpData.map(e => ({ ...e, addedBy: e.added_by || "manager" })) : []);
       } catch (err) {
         console.error("Failed to load data from Supabase:", err);
       } finally {
