@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import React from "react";
 // ── SUPABASE CLIENT ────────────────────────────────────────
 const SUPABASE_URL = "https://ffitspikszuqusanuzlq.supabase.co";
-const SUPABASE_KEY = "sb_publishable_nWot1xDvDrl4qp2OsjHERw___ZXEE0C";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZmaXRzcGlrc3p1cXVzYW51emxxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4NTU0NzIsImV4cCI6MjA5NjQzMTQ3Mn0.OMA3CFq4Jo70GFID_uslTNv1PP30BEWMm8J4Qpr1Sug";
 
 const supabase = (() => {
   const headers = {
@@ -14,25 +14,63 @@ const supabase = (() => {
 
   return {
     async getAll(table) {
-      const res = await fetch(url(table, "?order=created_at.asc"), { headers });
-      return res.ok ? res.json() : [];
+      try {
+        const res = await fetch(url(table, "?order=created_at.asc"), { headers });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          console.error(`[Supabase] getAll(${table}) failed ${res.status}:`, err);
+          return [];
+        }
+        return res.json();
+      } catch (e) {
+        console.error(`[Supabase] getAll(${table}) network error:`, e);
+        return [];
+      }
     },
     async insert(table, data) {
-      const res = await fetch(url(table), {
-        method: "POST", headers: { ...headers, "Prefer": "return=representation" },
-        body: JSON.stringify(data)
-      });
-      return res.ok ? res.json() : null;
+      try {
+        const res = await fetch(url(table), {
+          method: "POST", headers: { ...headers, "Prefer": "return=representation" },
+          body: JSON.stringify(data)
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          console.error(`[Supabase] insert(${table}) failed ${res.status}:`, err);
+          return null;
+        }
+        return res.json();
+      } catch (e) {
+        console.error(`[Supabase] insert(${table}) network error:`, e);
+        return null;
+      }
     },
     async update(table, id, data) {
-      const res = await fetch(url(table, `?id=eq.${id}`), {
-        method: "PATCH", headers: { ...headers, "Prefer": "return=representation" },
-        body: JSON.stringify(data)
-      });
-      return res.ok ? res.json() : null;
+      try {
+        const res = await fetch(url(table, `?id=eq.${id}`), {
+          method: "PATCH", headers: { ...headers, "Prefer": "return=representation" },
+          body: JSON.stringify(data)
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          console.error(`[Supabase] update(${table}, ${id}) failed ${res.status}:`, err);
+          return null;
+        }
+        return res.json();
+      } catch (e) {
+        console.error(`[Supabase] update(${table}, ${id}) network error:`, e);
+        return null;
+      }
     },
     async remove(table, id) {
-      await fetch(url(table, `?id=eq.${id}`), { method: "DELETE", headers });
+      try {
+        const res = await fetch(url(table, `?id=eq.${id}`), { method: "DELETE", headers });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          console.error(`[Supabase] remove(${table}, ${id}) failed ${res.status}:`, err);
+        }
+      } catch (e) {
+        console.error(`[Supabase] remove(${table}, ${id}) network error:`, e);
+      }
     }
   };
 })();
@@ -442,9 +480,9 @@ const Expenses = ({ expenses, setExpenses, managerExpenses, setManagerExpenses, 
                       </div>
                       {isPending && (
                         <div style={{ display: "flex", gap: 8 }}>
-                          <button onClick={() => setManagerExpenses(prev => prev.map(x => x.id === e.id ? { ...x, status: "approved" } : x))}
+                          <button onClick={async () => { setManagerExpenses(prev => prev.map(x => x.id === e.id ? { ...x, status: "approved" } : x)); if (updateManagerExpenseDB) await updateManagerExpenseDB(e.id, { status: "approved" }); }}
                             style={{ flex: 1, background: COLORS.success, color: "#fff", border: "none", borderRadius: 8, padding: "7px 0", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>✅ Approve</button>
-                          <button onClick={() => setManagerExpenses(prev => prev.map(x => x.id === e.id ? { ...x, status: "rejected" } : x))}
+                          <button onClick={async () => { setManagerExpenses(prev => prev.map(x => x.id === e.id ? { ...x, status: "rejected" } : x)); if (updateManagerExpenseDB) await updateManagerExpenseDB(e.id, { status: "rejected" }); }}
                             style={{ flex: 1, background: "transparent", border: `1px solid ${COLORS.danger}`, borderRadius: 8, padding: "7px 0", color: COLORS.danger, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>❌ Reject</button>
                         </div>
                       )}
@@ -851,8 +889,9 @@ const Bookings = ({ bookings, setBookings, clients, role, deleteRequests, setDel
     if (updateBookingDB) await updateBookingDB(id, { delivered: true });
   };
 
-  const markEditedDelivered = (id) => {
+  const markEditedDelivered = async (id) => {
     setBookings(prev => prev.map(b => b.id === id ? { ...b, editedDelivered: true } : b));
+    if (updateBookingDB) await updateBookingDB(id, { edited_delivered: true });
   };
 
   const deleteBooking = (id, clientName) => {
@@ -1319,7 +1358,7 @@ const Frames = ({ frames, setFrames, clients, role, hideTitle = false, saveFrame
 };
 
 // ── RENTALS ────────────────────────────────────────────────
-const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false }) => {
+const Rentals = ({ rentals, setRentals, clients, role, hideTitle = false, saveRental, updateRentalDB, deleteRentalDB }) => {
   const canEdit = role === "manager" || role === "alain" || role === "max";
   const [showForm, setShowForm] = useState(false);
   const [addPaymentId, setAddPaymentId] = useState(null);
@@ -2157,7 +2196,7 @@ const Shop = ({ rentals, setRentals, frames, setFrames, studioSessions, setStudi
           </button>
         ))}
       </div>
-      {activeShopTab === "rentals" && <Rentals rentals={rentals} setRentals={setRentals} clients={clients} role={role} hideTitle />}
+      {activeShopTab === "rentals" && <Rentals rentals={rentals} setRentals={setRentals} clients={clients} role={role} hideTitle saveRental={saveRental} updateRentalDB={updateRentalDB} deleteRentalDB={deleteRentalDB} />}
       {activeShopTab === "frames" && <Frames frames={frames} setFrames={setFrames} clients={clients} role={role} hideTitle saveFrame={saveFrame} updateFrameDB={updateFrameDB} deleteFrameDB={deleteFrameDB} />}
       {activeShopTab === "studio" && <StudioSessions sessions={studioSessions} setSessions={setStudioSessions} clients={clients} role={role} saveStudioSession={saveStudioSession} updateStudioDB={updateStudioDB} deleteStudioDB={deleteStudioDB} />}
     </div>
@@ -2166,7 +2205,7 @@ const Shop = ({ rentals, setRentals, frames, setFrames, studioSessions, setStudi
 
 
 // ── SETTINGS (Manager only) ────────────────────────────────
-const Settings = ({ pins, setPins, deleteRequests, setDeleteRequests, setClients, setBookings, clients, bookings }) => {
+const Settings = ({ pins, setPins, deleteRequests, setDeleteRequests, setClients, setBookings, clients, bookings, deleteClientDB, deleteBookingDB }) => {
   const [form, setForm] = useState({
     manager: "", alain: "", max: "", viewer: ""
   });
@@ -2216,9 +2255,9 @@ const Settings = ({ pins, setPins, deleteRequests, setDeleteRequests, setClients
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => {
-                  if (req.type === "client") setClients(prev => prev.filter(c => c.id !== req.itemId));
-                  if (req.type === "booking") setBookings(prev => prev.filter(b => b.id !== req.itemId));
+                <button onClick={async () => {
+                  if (req.type === "client") { setClients(prev => prev.filter(c => c.id !== req.itemId)); if (deleteClientDB) await deleteClientDB(req.itemId); }
+                  if (req.type === "booking") { setBookings(prev => prev.filter(b => b.id !== req.itemId)); if (deleteBookingDB) await deleteBookingDB(req.itemId); }
                   setDeleteRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: "approved" } : r));
                 }} style={{ flex: 1, background: COLORS.danger, color: "#fff", border: "none", borderRadius: 8, padding: "7px 0", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
                   ✅ Approve Delete
@@ -2506,7 +2545,7 @@ export default function App() {
         {tab === "bookings" && <Bookings bookings={bookings} setBookings={setBookings} clients={clients} role={role} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} saveBooking={saveBooking} updateBookingDB={updateBookingDB} deleteBookingDB={deleteBookingDB} />}
         {tab === "expenses" && <Expenses expenses={expenses} setExpenses={setExpenses} managerExpenses={managerExpenses} setManagerExpenses={setManagerExpenses} staffPayments={staffPayments} setStaffPayments={setStaffPayments} role={role} saveExpense={saveExpense} updateExpenseDB={updateExpenseDB} deleteExpenseDB={deleteExpenseDB} saveManagerExpense={saveManagerExpense} updateManagerExpenseDB={updateManagerExpenseDB} deleteManagerExpenseDB={deleteManagerExpenseDB} saveStaffPayment={saveStaffPayment} deleteStaffPaymentDB={deleteStaffPaymentDB} />}
         {tab === "shop" && <Shop rentals={rentals} setRentals={setRentals} frames={frames} setFrames={setFrames} studioSessions={studioSessions} setStudioSessions={setStudioSessions} clients={clients} role={role} saveRental={saveRental} updateRentalDB={updateRentalDB} deleteRentalDB={deleteRentalDB} saveFrame={saveFrame} updateFrameDB={updateFrameDB} deleteFrameDB={deleteFrameDB} saveStudioSession={saveStudioSession} updateStudioDB={updateStudioDB} deleteStudioDB={deleteStudioDB} />}
-        {tab === "settings" && <Settings pins={pins} setPins={setPins} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} setClients={setClients} setBookings={setBookings} clients={clients} bookings={bookings} />}
+        {tab === "settings" && <Settings pins={pins} setPins={setPins} deleteRequests={deleteRequests} setDeleteRequests={setDeleteRequests} setClients={setClients} setBookings={setBookings} clients={clients} bookings={bookings} deleteClientDB={deleteClientDB} deleteBookingDB={deleteBookingDB} />}
         {tab === "completed" && <Completed bookings={bookings} setBookings={setBookings} studioSessions={studioSessions} setStudioSessions={setStudioSessions} frames={frames} setFrames={setFrames} rentals={rentals} role={role} updateBookingDB={updateBookingDB} />}
       </div>
 
